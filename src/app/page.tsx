@@ -8,7 +8,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import PhysicsRenderer from '../components/PhysicsRenderer';
 import { workflowEngine, ExperimentOutput, WorkflowState } from '../workflow/engine';
-import { callZhipuAI, parseAIResponse } from '../api/zhipu';
 
 // 示例实验提示
 const EXAMPLE_PROMPTS = [
@@ -28,12 +27,12 @@ export default function Home() {
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [animationSpeed, setAnimationSpeed] = useState(1);
-  const [aiResponse, setAiResponse] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [statusMessage, setStatusMessage] = useState<string>('');
   
   const animationRef = useRef<number | null>(null);
   
-  // 处理用户输入
+  // 处理用户输入 - 使用本地工作流引擎
   const handleProcess = useCallback(async () => {
     if (!userInput.trim()) {
       setError('请输入实验描述');
@@ -42,32 +41,32 @@ export default function Home() {
     
     setIsProcessing(true);
     setError('');
+    setStatusMessage('正在解析输入...');
     setCurrentTime(0);
     setIsPlaying(false);
     
     try {
-      // 调用智谱AI增强理解
-      const aiResult = await callZhipuAI({ userInput });
-      setAiResponse(aiResult);
-      
-      // 执行工作流
+      // 直接执行本地工作流引擎（不依赖外部API）
+      setStatusMessage('正在执行工作流引擎...');
       const state = await workflowEngine.execute(userInput);
       setWorkflowState(state);
       
       if (state.output) {
         setExperimentOutput(state.output);
+        setStatusMessage('实验模拟完成！');
         
-        // 解析AI响应并增强输出
-        const parsedAI = parseAIResponse(aiResult);
-        if (parsedAI) {
-          // 合并AI建议
-          console.log('AI增强参数:', parsedAI);
-        }
+        // 自动开始播放动画
+        setTimeout(() => {
+          setIsPlaying(true);
+        }, 500);
       } else if (state.errors.length > 0) {
         setError(state.errors.map(e => e.message).join('\n'));
+        setStatusMessage('');
       }
     } catch (err) {
+      console.error('处理失败:', err);
       setError(`处理失败: ${err}`);
+      setStatusMessage('');
     } finally {
       setIsProcessing(false);
     }
@@ -111,6 +110,7 @@ export default function Home() {
   // 使用示例
   const handleExampleClick = (example: string) => {
     setUserInput(example);
+    setError('');
   };
   
   return (
@@ -138,7 +138,7 @@ export default function Home() {
             
             {/* 示例按钮 */}
             <div className="examples">
-              <h3>示例实验</h3>
+              <h3>示例实验（点击快速填充）</h3>
               <div className="example-buttons">
                 {EXAMPLE_PROMPTS.map((example, index) => (
                   <button
@@ -146,7 +146,7 @@ export default function Home() {
                     onClick={() => handleExampleClick(example)}
                     className="example-btn"
                   >
-                    {example.substring(0, 30)}...
+                    {example.substring(0, 25)}...
                   </button>
                 ))}
               </div>
@@ -160,6 +160,11 @@ export default function Home() {
             >
               {isProcessing ? '处理中...' : '开始模拟'}
             </button>
+            
+            {/* 状态消息 */}
+            {statusMessage && !error && (
+              <div className="status-message">{statusMessage}</div>
+            )}
             
             {error && <div className="error-message">{error}</div>}
           </section>
@@ -294,26 +299,16 @@ export default function Home() {
                   <div className="energy-chart">
                     <div className="energy-item">
                       <span>初始势能:</span>
-                      <span>{experimentOutput.calculations.energyAnalysis.potential[0]?.toFixed(2)} J</span>
+                      <span>{experimentOutput.calculations.energyAnalysis.potential[0]?.toFixed(2) || 0} J</span>
                     </div>
                     <div className="energy-item">
                       <span>最终动能:</span>
-                      <span>{experimentOutput.calculations.energyAnalysis.kinetic[experimentOutput.calculations.energyAnalysis.kinetic.length - 1]?.toFixed(2)} J</span>
+                      <span>{experimentOutput.calculations.energyAnalysis.kinetic[experimentOutput.calculations.energyAnalysis.kinetic.length - 1]?.toFixed(2) || 0} J</span>
                     </div>
                     <div className="energy-item">
                       <span>总能量:</span>
-                      <span>{experimentOutput.calculations.energyAnalysis.total[0]?.toFixed(2)} J</span>
+                      <span>{experimentOutput.calculations.energyAnalysis.total[0]?.toFixed(2) || 0} J</span>
                     </div>
-                  </div>
-                </section>
-              )}
-              
-              {/* AI响应 */}
-              {aiResponse && (
-                <section className="ai-section">
-                  <h2>AI分析结果</h2>
-                  <div className="ai-content">
-                    <pre>{aiResponse}</pre>
                   </div>
                 </section>
               )}
@@ -324,7 +319,7 @@ export default function Home() {
       
       {/* 底部 */}
       <footer className="app-footer">
-        <p>物理实验AI智能体 - 工作流节点: 12 | AI模型: 智谱GLM-4.5-Flash | 3D渲染: Three.js</p>
+        <p>物理实验AI智能体 - 工作流节点: 12 | 3D渲染: Three.js</p>
       </footer>
     </div>
   );
