@@ -13,16 +13,6 @@ import { AnimationData, PhysicsObject, ExperimentScene } from '../workflow/engin
 const Canvas = lazy(() => import('@react-three/fiber').then(mod => ({ default: mod.Canvas })));
 const OrbitControls = lazy(() => import('@react-three/drei').then(mod => ({ default: mod.OrbitControls })));
 
-// useFrame 需要在运行时获取
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _useFrame: any;
-function getUseFrame() {
-  if (!_useFrame) {
-    _useFrame = require('@react-three/fiber').useFrame;
-  }
-  return _useFrame;
-}
-
 // 检测WebGL是否可用
 function isWebGLAvailable(): boolean {
   if (typeof window === 'undefined') return true; // SSR时假设可用
@@ -194,7 +184,7 @@ function MeasurementRuler() {
   return <group>{marks}</group>;
 }
 
-// 粒子场
+// 粒子场（简化版，不使用useFrame）
 function ParticleField() {
   const particlesRef = useRef<THREE.Points>(null);
   const positions = useMemo(() => {
@@ -210,10 +200,17 @@ function ParticleField() {
     return pos;
   }, []);
 
-  const uf = getUseFrame();
-  uf((_, delta) => {
-    if (particlesRef.current) particlesRef.current.rotation.y += delta * 0.02;
-  });
+  useEffect(() => {
+    let frame: number;
+    const animate = () => {
+      if (particlesRef.current) {
+        particlesRef.current.rotation.y += 0.02;
+      }
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   return (
     <points ref={particlesRef}>
