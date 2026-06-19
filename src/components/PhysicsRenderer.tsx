@@ -1,28 +1,12 @@
 /**
  * 3D物理实验渲染器
- * 使用Three.js实现实时3D可视化
- * 包含WebGL检测和优雅降级
+ * 使用纯CSS 3D变换实现可视化（无WebGL依赖）
  */
 
 'use client';
 
-import React, { useRef, useMemo, useEffect, useState, lazy, Suspense } from 'react';
+import React, { useRef, useMemo, useEffect, useState } from 'react';
 import { AnimationData, PhysicsObject, ExperimentScene } from '../workflow/engine';
-
-// 动态导入 - 仅在WebGL可用时加载Three.js相关组件
-const Canvas = lazy(() => import('@react-three/fiber').then(mod => ({ default: mod.Canvas })));
-const OrbitControls = lazy(() => import('@react-three/drei').then(mod => ({ default: mod.OrbitControls })));
-
-// 检测WebGL是否可用
-function isWebGLAvailable(): boolean {
-  if (typeof window === 'undefined') return true; // SSR时假设可用
-  try {
-    const canvas = document.createElement('canvas');
-    return !!(canvas.getContext('webgl') || canvas.getContext('experimental-webgl'));
-  } catch {
-    return false;
-  }
-}
 
 // 物理对象3D组件
 interface ObjectMeshProps {
@@ -32,10 +16,9 @@ interface ObjectMeshProps {
   isPlaying: boolean;
 }
 
-function ObjectMesh({ object, animation, currentTime, isPlaying }: ObjectMeshProps) {
-  const meshRef = useRef<THREE.Mesh>(null);
+function ObjectMesh3D({ object, animation, currentTime, isPlaying }: ObjectMeshProps) {
   const [position, setPosition] = useState<[number, number, number]>(object.position);
-  const trailPoints = useRef<[number, number, number][]>([]);
+  const [trail, setTrail] = useState<[number, number, number][]>([]);
 
   useEffect(() => {
     if (animation && isPlaying) {
@@ -51,6 +34,10 @@ function ObjectMesh({ object, animation, currentTime, isPlaying }: ObjectMeshPro
         }
         if (currentFrame?.position) {
           setPosition(currentFrame.position);
+          setTrail(prev => {
+            const newTrail = [...prev, currentFrame.position!];
+            return newTrail.length > 60 ? newTrail.slice(-60) : newTrail;
+          });
         }
       }
     } else if (!isPlaying && !animation) {
@@ -58,256 +45,185 @@ function ObjectMesh({ object, animation, currentTime, isPlaying }: ObjectMeshPro
     }
   }, [animation, currentTime, isPlaying, object.position]);
 
-  useEffect(() => {
-    if (isPlaying && animation) {
-      trailPoints.current.push([...position]);
-      if (trailPoints.current.length > 100) {
-        trailPoints.current.shift();
-      }
-    }
-  }, [position, isPlaying, animation]);
+  const shapeStyle = useMemo(() => {
+    const base: React.CSSProperties = {
+      position: 'absolute',
+      transform: `translate3d(${position[0] * 30}px, ${-position[1] * 30}px, ${position[2] * 30}px)`,
+      transition: isPlaying ? 'none' : 'transform 0.3s ease',
+    };
 
-  const geometry = useMemo(() => {
     switch (object.type) {
       case 'sphere':
-        return <sphereGeometry args={[0.5, 32, 32]} />;
+        return { ...base, width: '30px', height: '30px', borderRadius: '50%', background: `radial-gradient(circle at 35% 35%, ${object.color || '#ff6b6b'}, ${object.color || '#ff6b6b'}88)`, boxShadow: `0 0 20px ${object.color || '#ff6b6b'}66, inset 0 -3px 6px rgba(0,0,0,0.3)` };
       case 'cube':
-        return <boxGeometry args={[1, 1, 1]} />;
+        return { ...base, width: '28px', height: '28px', borderRadius: '4px', background: `linear-gradient(135deg, ${object.color || '#4a90d9'}, ${object.color || '#4a90d9'}88)`, boxShadow: `0 0 15px ${object.color || '#4a90d9'}66` };
       case 'cylinder':
-        return <cylinderGeometry args={[0.5, 0.5, 1, 32]} />;
+        return { ...base, width: '24px', height: '32px', borderRadius: '12px', background: `linear-gradient(180deg, ${object.color || '#2ed573'}, ${object.color || '#2ed573'}88)`, boxShadow: `0 0 15px ${object.color || '#2ed573'}66` };
       default:
-        return <sphereGeometry args={[0.5, 32, 32]} />;
+        return { ...base, width: '30px', height: '30px', borderRadius: '50%', background: object.color || '#4a90d9', boxShadow: `0 0 15px ${object.color || '#4a90d9'}66` };
     }
-  }, [object.type]);
+  }, [position, object.type, object.color, isPlaying]);
 
   return (
-    <group>
-      <mesh ref={meshRef} position={position} castShadow>
-        {geometry}
-        <meshStandardMaterial
-          color={object.color || '#ff6b6b'}
-          metalness={0.3}
-          roughness={0.4}
-          emissive={object.color || '#ff6b6b'}
-          emissiveIntensity={0.2}
-        />
-      </mesh>
-
-      {trailPoints.current.length > 1 && (
-        <line>
-          <bufferGeometry>
-            <bufferAttribute
-              attach="attributes-position"
-              count={trailPoints.current.length}
-              array={new Float32Array(trailPoints.current.flat())}
-              itemSize={3}
-            />
-          </bufferGeometry>
-          <lineBasicMaterial color={object.color || '#ff6b6b'} linewidth={2} transparent opacity={0.6} />
-        </line>
+    <>
+      {/* 轨迹线 */}
+      {trail.length > 1 && (
+        <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+          <polyline
+            points={trail.map(p => `${250 + p[0] * 30},${250 - p[1] * 30}`).join(' ')}
+            fill="none"
+            stroke={object.color || '#ff6b6b'}
+            strokeWidth="2"
+            strokeOpacity="0.4"
+            strokeDasharray="4,2"
+          />
+        </svg>
       )}
-
-      <mesh position={position} rotation={[Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[0.6, 0.8, 32]} />
-        <meshBasicMaterial color={object.color || '#ff6b6b'} transparent opacity={0.3} side={2} />
-      </mesh>
-    </group>
+      {/* 对象 */}
+      <div style={shapeStyle} title={object.name} />
+      {/* 阴影 */}
+      <div style={{
+        position: 'absolute',
+        bottom: '5px',
+        left: '50%',
+        transform: `translateX(${position[0] * 30}px)`,
+        width: `${Math.max(10, 30 - position[1] * 2)}px`,
+        height: '6px',
+        borderRadius: '50%',
+        background: 'rgba(0,0,0,0.3)',
+        filter: 'blur(3px)',
+        transition: isPlaying ? 'none' : 'all 0.3s ease',
+      }} />
+    </>
   );
 }
 
-// 地面
-function GroundPlane() {
-  return (
-    <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-        <planeGeometry args={[50, 50]} />
-        <meshStandardMaterial color="#1a2a3a" metalness={0.1} roughness={0.8} />
-      </mesh>
-      <gridHelper args={[50, 50, '#4a90d9', '#2a4a5a']} position={[0, 0.01, 0]} />
-      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[2, 32]} />
-        <meshBasicMaterial color="#4a90d9" transparent opacity={0.2} />
-      </mesh>
-    </group>
-  );
-}
-
-// 坐标轴
-function CoordinateAxes() {
-  const axisLength = 8;
-  return (
-    <group position={[0, 0.05, 0]}>
-      <group>
-        <mesh position={[axisLength / 2, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[0.03, 0.03, axisLength, 8]} />
-          <meshBasicMaterial color="#ff4757" />
-        </mesh>
-        <mesh position={[axisLength, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
-          <coneGeometry args={[0.1, 0.3, 8]} />
-          <meshBasicMaterial color="#ff4757" />
-        </mesh>
-      </group>
-      <group>
-        <mesh position={[0, axisLength / 2, 0]}>
-          <cylinderGeometry args={[0.03, 0.03, axisLength, 8]} />
-          <meshBasicMaterial color="#2ed573" />
-        </mesh>
-        <mesh position={[0, axisLength, 0]}>
-          <coneGeometry args={[0.1, 0.3, 8]} />
-          <meshBasicMaterial color="#2ed573" />
-        </mesh>
-      </group>
-      <group>
-        <mesh position={[0, 0, axisLength / 2]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.03, 0.03, axisLength, 8]} />
-          <meshBasicMaterial color="#1e90ff" />
-        </mesh>
-        <mesh position={[0, 0, axisLength]} rotation={[Math.PI, 0, 0]}>
-          <coneGeometry args={[0.1, 0.3, 8]} />
-          <meshBasicMaterial color="#1e90ff" />
-        </mesh>
-      </group>
-    </group>
-  );
+// 地面网格
+function GroundGrid() {
+  const lines = [];
+  for (let i = -10; i <= 10; i++) {
+    lines.push(
+      <div key={`h-${i}`} style={{
+        position: 'absolute',
+        bottom: `${i * 30 + 250}px`,
+        left: '0',
+        right: '0',
+        height: '1px',
+        background: i === 0 ? '#4a90d9' : 'rgba(74, 144, 217, 0.15)',
+        opacity: i === 0 ? 0.6 : 1,
+      }} />,
+      <div key={`v-${i}`} style={{
+        position: 'absolute',
+        top: '0',
+        bottom: '0',
+        left: `${i * 30 + 250}px`,
+        width: '1px',
+        background: i === 0 ? '#4a90d9' : 'rgba(74, 144, 217, 0.15)',
+        opacity: i === 0 ? 0.6 : 1,
+      }} />
+    );
+  }
+  return <>{lines}</>;
 }
 
 // 刻度尺
-function MeasurementRuler() {
+function Ruler() {
   const marks = [];
   for (let h = 0; h <= 12; h += 1) {
     marks.push(
-      <group key={h} position={[-8, h, 0]}>
-        <mesh><boxGeometry args={[0.8, 0.02, 0.02]} /><meshBasicMaterial color={h % 2 === 0 ? '#ffd700' : '#4a90d9'} /></mesh>
-      </group>
+      <div key={h} style={{
+        position: 'absolute',
+        right: '10px',
+        bottom: `${h * 30 + 250}px`,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+      }}>
+        <div style={{
+          width: h % 2 === 0 ? '20px' : '12px',
+          height: '2px',
+          background: h % 2 === 0 ? '#ffd700' : '#4a90d9',
+          borderRadius: '1px',
+        }} />
+        {h % 2 === 0 && (
+          <span style={{ fontSize: '10px', color: '#708090', fontFamily: 'monospace' }}>{h}m</span>
+        )}
+      </div>
     );
   }
-  return <group>{marks}</group>;
+  return <>{marks}</>;
 }
 
-// 粒子场（简化版，不使用useFrame）
-function ParticleField() {
-  const particlesRef = useRef<THREE.Points>(null);
-  const positions = useMemo(() => {
-    const pos = new Float32Array(200 * 3);
-    for (let i = 0; i < 200; i++) {
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      const r = 15 + Math.random() * 10;
-      pos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-      pos[i * 3 + 1] = Math.random() * 20 - 5;
-      pos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
-    }
-    return pos;
-  }, []);
-
-  useEffect(() => {
-    let frame: number;
-    const animate = () => {
-      if (particlesRef.current) {
-        particlesRef.current.rotation.y += 0.02;
-      }
-      frame = requestAnimationFrame(animate);
-    };
-    frame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frame);
-  }, []);
-
+// 坐标轴标签
+function AxisLabels() {
   return (
-    <points ref={particlesRef}>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={200} array={positions} itemSize={3} />
-      </bufferGeometry>
-      <pointsMaterial size={0.1} color="#4a90d9" transparent opacity={0.6} sizeAttenuation />
-    </points>
+    <>
+      <div style={{ position: 'absolute', bottom: '260px', left: '260px', fontSize: '12px', color: '#ff4757', fontWeight: 'bold' }}>X</div>
+      <div style={{ position: 'absolute', bottom: '260px', right: '50px', fontSize: '12px', color: '#2ed573', fontWeight: 'bold' }}>Y</div>
+    </>
   );
 }
 
-// 场景
-function PhysicsScene({ scene, animations, currentTime, isPlaying }: {
-  scene: ExperimentScene; animations: AnimationData[]; currentTime: number; isPlaying: boolean;
-}) {
-  if (scene) {
-    return (
-      <group>
-        {scene.objects.map((obj, index) => (
-          <ObjectMesh key={index} object={obj} animation={animations.find(a => a.objectId === obj.id)} currentTime={currentTime} isPlaying={isPlaying} />
-        ))}
-        <GroundPlane />
-        <CoordinateAxes />
-        <MeasurementRuler />
-      </group>
-    );
-  }
+// 背景粒子
+function BackgroundParticles() {
+  const [particles] = useState(() => {
+    return Array.from({ length: 30 }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      size: 2 + Math.random() * 3,
+      opacity: 0.1 + Math.random() * 0.3,
+      duration: 10 + Math.random() * 20,
+    }));
+  });
+
   return (
-    <group>
-      <ObjectMesh object={{ id: 'demo1', name: '演示球', type: 'sphere', position: [0, 5, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mass: 1, color: '#ff6b6b' }} currentTime={0} isPlaying={false} />
-      <ObjectMesh object={{ id: 'demo2', name: '演示方块', type: 'cube', position: [3, 0.5, 2], rotation: [0, 0, 0], scale: [1, 1, 1], mass: 2, color: '#4a90d9' }} currentTime={0} isPlaying={false} />
-      <ObjectMesh object={{ id: 'demo3', name: '演示柱体', type: 'cylinder', position: [-3, 0.5, -2], rotation: [0, 0, 0], scale: [1, 1, 1], mass: 1.5, color: '#2ed573' }} currentTime={0} isPlaying={false} />
-      <GroundPlane />
-      <CoordinateAxes />
-      <MeasurementRuler />
-    </group>
+    <>
+      {particles.map(p => (
+        <div key={p.id} style={{
+          position: 'absolute',
+          left: `${p.x}%`,
+          top: `${p.y}%`,
+          width: `${p.size}px`,
+          height: `${p.size}px`,
+          borderRadius: '50%',
+          background: '#4a90d9',
+          opacity: p.opacity,
+          animation: `float-particle ${p.duration}s ease-in-out infinite`,
+          animationDelay: `${-Math.random() * p.duration}s`,
+        }} />
+      ))}
+    </>
   );
 }
 
-// 3D Canvas 内容（仅在WebGL可用时渲染）
-function ThreeCanvasContent({ scene, animations, currentTime, isPlaying }: {
+// 场景渲染
+function PhysicsSceneView({ scene, animations, currentTime, isPlaying }: {
   scene: ExperimentScene | null; animations: AnimationData[]; currentTime: number; isPlaying: boolean;
 }) {
-  return (
-    <Canvas shadows camera={{ position: [8, 6, 10], fov: 50 }}
-      style={{ background: 'linear-gradient(180deg, #0a0a1a 0%, #1a1a3e 50%, #0f0f2e 100%)' }}>
-      <ambientLight intensity={0.4} />
-      <directionalLight position={[10, 15, 5]} intensity={1} castShadow
-        shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
-      <pointLight position={[-8, 8, -8]} intensity={0.5} color="#4a90d9" />
-      <pointLight position={[8, 4, 8]} intensity={0.3} color="#ff6b6b" />
-      <hemisphereLight args={['#4a90d9', '#1a2a3a', 0.3]} />
-      <PhysicsScene scene={scene || null} animations={animations} currentTime={currentTime} isPlaying={isPlaying} />
-      <ParticleField />
-      <Suspense fallback={null}>
-        <OrbitControls enablePan enableZoom enableRotate minDistance={3} maxDistance={30}
-          maxPolarAngle={Math.PI / 2 - 0.1} minPolarAngle={0.1} autoRotate={!scene} autoRotateSpeed={1} />
-      </Suspense>
-      <fog attach="fog" args={['#0a0a1a', 15, 40]} />
-    </Canvas>
-  );
-}
+  if (scene && scene.objects.length > 0) {
+    return (
+      <>
+        {scene.objects.map((obj, index) => (
+          <ObjectMesh3D
+            key={obj.id || index}
+            object={obj}
+            animation={animations.find(a => a.objectId === obj.id)}
+            currentTime={currentTime}
+            isPlaying={isPlaying}
+          />
+        ))}
+      </>
+    );
+  }
 
-// WebGL 不可用时的降级视图
-function FallbackView({ scene }: { scene: ExperimentScene | null }) {
+  // 默认演示场景
   return (
-    <div style={{
-      width: '100%', height: '100%',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexDirection: 'column', gap: '16px',
-      background: 'linear-gradient(180deg, #0a0a1a 0%, #1a1a3e 50%, #0f0f2e 100%)',
-      color: '#a0b0c0', textAlign: 'center', padding: '40px'
-    }}>
-      <div style={{ fontSize: '64px' }}>🔬</div>
-      <h3 style={{ fontSize: '20px', color: '#6ab0ff', margin: 0 }}>3D 物理实验视口</h3>
-      <p style={{ fontSize: '14px', maxWidth: '400px', lineHeight: '1.6' }}>
-        当前浏览器环境不支持 WebGL 3D 渲染。<br/>
-        请使用 Chrome、Firefox 或 Edge 浏览器以获得完整的 3D 交互体验。
-      </p>
-      {scene && (
-        <div style={{
-          marginTop: '20px', padding: '20px',
-          background: 'rgba(74, 144, 217, 0.1)', border: '1px solid rgba(74, 144, 217, 0.3)',
-          borderRadius: '12px', textAlign: 'left', maxWidth: '500px'
-        }}>
-          <h4 style={{ color: '#6ab0ff', marginBottom: '12px' }}>📋 实验场景信息</h4>
-          <p style={{ fontSize: '13px', color: '#a0b0c0', marginBottom: '8px' }}>
-            <strong>对象数量：</strong>{scene.objects.length} 个
-          </p>
-          {scene.objects.map((obj, i) => (
-            <div key={i} style={{ fontSize: '12px', color: '#708090', padding: '4px 0' }}>
-              • {obj.name} ({obj.type}) — 位置: [{obj.position.map(v => v.toFixed(1)).join(', ')}]
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    <>
+      <ObjectMesh3D object={{ id: 'demo1', name: '演示球', type: 'sphere', position: [0, 5, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mass: 1, color: '#ff6b6b' }} currentTime={0} isPlaying={false} />
+      <ObjectMesh3D object={{ id: 'demo2', name: '演示方块', type: 'cube', position: [3, 0.5, 2], rotation: [0, 0, 0], scale: [1, 1, 1], mass: 2, color: '#4a90d9' }} currentTime={0} isPlaying={false} />
+      <ObjectMesh3D object={{ id: 'demo3', name: '演示柱体', type: 'cylinder', position: [-3, 0.5, -2], rotation: [0, 0, 0], scale: [1, 1, 1], mass: 1.5, color: '#2ed573' }} currentTime={0} isPlaying={false} />
+    </>
   );
 }
 
@@ -320,39 +236,117 @@ interface PhysicsRendererProps {
 }
 
 export default function PhysicsRenderer({ scene, animations, currentTime, isPlaying }: PhysicsRendererProps) {
-  const [webglAvailable, setWebglAvailable] = useState<boolean | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [rotation, setRotation] = useState({ x: -15, y: 25 });
+  const isDragging = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
 
+  // 鼠标拖拽旋转
   useEffect(() => {
-    setWebglAvailable(isWebGLAvailable());
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      isDragging.current = true;
+      lastPos.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      const dx = e.clientX - lastPos.current.x;
+      const dy = e.clientY - lastPos.current.y;
+      setRotation(prev => ({
+        x: Math.max(-60, Math.min(60, prev.x + dy * 0.3)),
+        y: prev.y + dx * 0.3,
+      }));
+      lastPos.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handleMouseUp = () => {
+      isDragging.current = false;
+    };
+
+    container.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      container.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
   }, []);
 
   return (
-    <div className="physics-canvas-container" style={{ width: '100%', height: '100%' }}>
-      {webglAvailable === null ? (
+    <div
+      ref={containerRef}
+      className="physics-canvas-container"
+      style={{
+        width: '100%',
+        height: '100%',
+        background: 'linear-gradient(180deg, #0a0a1a 0%, #1a1a3e 50%, #0f0f2e 100%)',
+        cursor: isDragging.current ? 'grabbing' : 'grab',
+        overflow: 'hidden',
+        position: 'relative',
+        userSelect: 'none',
+      }}
+    >
+      {/* CSS 3D 透视容器 */}
+      <div style={{
+        width: '100%',
+        height: '100%',
+        perspective: '800px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
         <div style={{
-          width: '100%', height: '100%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'linear-gradient(180deg, #0a0a1a 0%, #1a1a3e 50%, #0f0f2e 100%)',
-          color: '#6ab0ff', fontSize: '16px'
+          width: '500px',
+          height: '500px',
+          position: 'relative',
+          transformStyle: 'preserve-3d',
+          transform: `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)`,
+          transition: isDragging.current ? 'none' : 'transform 0.1s ease-out',
         }}>
-          正在初始化 3D 引擎...
+          {/* 背景粒子 */}
+          <BackgroundParticles />
+
+          {/* 地面网格 */}
+          <GroundGrid />
+
+          {/* 刻度尺 */}
+          <Ruler />
+
+          {/* 坐标轴标签 */}
+          <AxisLabels />
+
+          {/* 物理对象 */}
+          <PhysicsSceneView
+            scene={scene}
+            animations={animations}
+            currentTime={currentTime}
+            isPlaying={isPlaying}
+          />
         </div>
-      ) : webglAvailable ? (
-        <Suspense fallback={
-          <div style={{
-            width: '100%', height: '100%',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'linear-gradient(180deg, #0a0a1a 0%, #1a1a3e 50%, #0f0f2e 100%)',
-            color: '#6ab0ff', fontSize: '16px'
-          }}>
-            加载 3D 组件中...
-          </div>
-        }>
-          <ThreeCanvasContent scene={scene} animations={animations} currentTime={currentTime} isPlaying={isPlaying} />
-        </Suspense>
-      ) : (
-        <FallbackView scene={scene} />
-      )}
+      </div>
+
+      {/* 3D 信息叠加层 */}
+      <div style={{
+        position: 'absolute',
+        top: '12px',
+        left: '12px',
+        padding: '8px 14px',
+        background: 'rgba(0,0,0,0.5)',
+        borderRadius: '8px',
+        border: '1px solid rgba(74, 144, 217, 0.3)',
+        fontSize: '11px',
+        color: '#708090',
+        pointerEvents: 'none',
+      }}>
+        <div>旋转: X={rotation.x.toFixed(0)} Y={rotation.y.toFixed(0)}</div>
+        <div>时间: {currentTime.toFixed(2)}s</div>
+        <div>对象: {scene?.objects.length || 3}</div>
+      </div>
     </div>
   );
 }

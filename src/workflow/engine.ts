@@ -307,9 +307,9 @@ export class InputParserNode extends WorkflowNode {
     
     // 数量实体
     const quantityPattern = /(\d+(?:\.\d+)?)\s*(米|秒|千克|m|s|kg|牛顿|N|焦耳|J)?/gi;
-    const quantityMatches = text.matchAll(quantityPattern);
+    const quantityMatches = text.match(quantityPattern) || [];
     for (const match of quantityMatches) {
-      entities.push({ type: 'quantity', value: match[0], confidence: 0.85 });
+      entities.push({ type: 'quantity', value: match, confidence: 0.85 });
     }
     
     return entities;

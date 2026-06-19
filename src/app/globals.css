@@ -197,7 +197,7 @@ body {
 /* ================================
    左侧控制面板
    ================================ */
-.control-panel {
+.left-panel {
   width: 320px;
   display: flex;
   flex-direction: column;
@@ -206,25 +206,24 @@ body {
   padding-right: 8px;
 }
 
-/* 滚动条样式 */
-.control-panel::-webkit-scrollbar,
-.info-panel::-webkit-scrollbar {
+.left-panel::-webkit-scrollbar,
+.right-panel::-webkit-scrollbar {
   width: 6px;
 }
 
-.control-panel::-webkit-scrollbar-track,
-.info-panel::-webkit-scrollbar-track {
+.left-panel::-webkit-scrollbar-track,
+.right-panel::-webkit-scrollbar-track {
   background: var(--bg-dark);
 }
 
-.control-panel::-webkit-scrollbar-thumb,
-.info-panel::-webkit-scrollbar-thumb {
+.left-panel::-webkit-scrollbar-thumb,
+.right-panel::-webkit-scrollbar-thumb {
   background: var(--border-color);
   border-radius: 3px;
 }
 
-.control-panel::-webkit-scrollbar-thumb:hover,
-.info-panel::-webkit-scrollbar-thumb:hover {
+.left-panel::-webkit-scrollbar-thumb:hover,
+.right-panel::-webkit-scrollbar-thumb:hover {
   background: var(--primary);
 }
 
@@ -916,10 +915,17 @@ body {
   50% { opacity: 1; }
 }
 
+@keyframes float-particle {
+  0%, 100% { transform: translateY(0) translateX(0); opacity: 0.15; }
+  25% { transform: translateY(-15px) translateX(5px); opacity: 0.3; }
+  50% { transform: translateY(-5px) translateX(-8px); opacity: 0.15; }
+  75% { transform: translateY(-20px) translateX(3px); opacity: 0.25; }
+}
+
 /* ================================
    右侧信息面板
    ================================ */
-.info-panel {
+.right-panel {
   width: 340px;
   display: flex;
   flex-direction: column;
@@ -1151,11 +1157,11 @@ body {
    响应式设计
    ================================ */
 @media (max-width: 1400px) {
-  .control-panel {
+  .left-panel {
     width: 280px;
   }
-  
-  .info-panel {
+
+  .right-panel {
     width: 300px;
   }
 }
@@ -1166,9 +1172,9 @@ body {
     overflow-y: auto;
     padding: 12px;
   }
-  
-  .control-panel,
-  .info-panel {
+
+  .left-panel,
+  .right-panel {
     width: 100%;
     max-height: none;
     overflow: visible;
