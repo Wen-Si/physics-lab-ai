@@ -11,6 +11,24 @@ import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { AnimationData, PhysicsObject, ExperimentScene } from '../workflow/engine';
 
+// WebGL 错误边界
+class ErrorBoundary extends React.Component<{ children: React.ReactNode; onError: () => void }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode; onError: () => void }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch() {
+    this.props.onError();
+  }
+  render() {
+    if (this.state.hasError) return null;
+    return this.props.children;
+  }
+}
+
 // 物理对象3D组件
 interface ObjectMeshProps {
   object: PhysicsObject;
@@ -309,14 +327,50 @@ interface PhysicsRendererProps {
 }
 
 export default function PhysicsRenderer({ scene, animations, currentTime, isPlaying }: PhysicsRendererProps) {
+  const [webglError, setWebglError] = useState(false);
+
   return (
     <div className="physics-canvas-container">
-      <Canvas
-        shadows
-        camera={{ position: [8, 6, 10], fov: 50 }}
-        gl={{ antialias: true }}
-        style={{ background: 'linear-gradient(180deg, #0a0a1a 0%, #1a1a3e 50%, #0f0f2e 100%)' }}
-      >
+      {webglError ? (
+        <div style={{
+          width: '100%', height: '100%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexDirection: 'column', gap: '16px',
+          background: 'linear-gradient(180deg, #0a0a1a 0%, #1a1a3e 50%, #0f0f2e 100%)',
+          color: '#a0b0c0', textAlign: 'center', padding: '40px'
+        }}>
+          <div style={{ fontSize: '64px' }}>🔬</div>
+          <h3 style={{ fontSize: '20px', color: '#6ab0ff', margin: 0 }}>3D 物理实验视口</h3>
+          <p style={{ fontSize: '14px', maxWidth: '400px', lineHeight: '1.6' }}>
+            当前浏览器环境不支持 WebGL 3D 渲染。<br/>
+            请使用 Chrome、Firefox 或 Edge 浏览器打开此页面以获得完整的 3D 交互体验。
+          </p>
+          {scene && (
+            <div style={{
+              marginTop: '20px', padding: '20px',
+              background: 'rgba(74, 144, 217, 0.1)', border: '1px solid rgba(74, 144, 217, 0.3)',
+              borderRadius: '12px', textAlign: 'left', maxWidth: '500px'
+            }}>
+              <h4 style={{ color: '#6ab0ff', marginBottom: '12px' }}>📋 实验场景信息</h4>
+              <p style={{ fontSize: '13px', color: '#a0b0c0', marginBottom: '8px' }}>
+                <strong>对象数量：</strong>{scene.objects.length} 个
+              </p>
+              {scene.objects.map((obj, i) => (
+                <div key={i} style={{ fontSize: '12px', color: '#708090', padding: '4px 0' }}>
+                  • {obj.name} ({obj.type}) — 位置: [{obj.position.map(v => v.toFixed(1)).join(', ')}]
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <ErrorBoundary onError={() => setWebglError(true)}>
+          <Canvas
+            shadows
+            camera={{ position: [8, 6, 10], fov: 50 }}
+            gl={{ antialias: true }}
+            style={{ background: 'linear-gradient(180deg, #0a0a1a 0%, #1a1a3e 50%, #0f0f2e 100%)' }}
+          >
         <AutoCamera />
         
         {/* 环境光 */}
@@ -370,6 +424,8 @@ export default function PhysicsRenderer({ scene, animations, currentTime, isPlay
         {/* 雾效 */}
         <fog attach="fog" args={['#0a0a1a', 15, 40]} />
       </Canvas>
+        </ErrorBoundary>
+      )}
     </div>
   );
 }
