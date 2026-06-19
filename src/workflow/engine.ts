@@ -3,8 +3,6 @@
  * 包含12个工作流节点，实现从自然语言到3D渲染的完整流程
  */
 
-import { z } from 'zod';
-
 // 工作流节点定义
 export enum WorkflowNodeType {
   // 节点1: 输入解析节点

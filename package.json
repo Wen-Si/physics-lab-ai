@@ -15,9 +15,7 @@
     "react-dom": "^18.2.0",
     "three": "^0.160.0",
     "@react-three/fiber": "^8.15.0",
-    "@react-three/drei": "^9.92.0",
-    "zod": "^3.22.0",
-    "axios": "^1.6.0"
+    "@react-three/drei": "^9.92.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
