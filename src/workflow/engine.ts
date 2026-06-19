@@ -486,8 +486,8 @@ export class ParameterExtractorNode extends WorkflowNode {
         });
         objects.push({
           id: 'bob', name: '摆球', type: 'sphere',
-          position: [numbers[1] || 1, 1, 0], rotation: [0, 0, 0], scale: [0.4, 0.4, 0.4],
-          mass: numbers[0] || 0.5, color: '#4ecdc4'
+          position: [numbers[0] || 1, 1, 0], rotation: [0, 0, 0], scale: [0.4, 0.4, 0.4],
+          mass: numbers[1] || 0.5, color: '#4ecdc4'
         });
         objects.push({
           id: 'string_line', name: '摆线', type: 'cylinder',
