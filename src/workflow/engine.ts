@@ -467,9 +467,9 @@ export class ParameterExtractorNode extends WorkflowNode {
       case 'freefall':
         objects.push({
           id: 'ball_1', name: '小球', type: 'sphere',
-          position: [0, numbers[0] || 10, 0],
+          position: [0, numbers.length > 1 ? numbers[1] : (numbers[0] || 10), 0],
           rotation: [0, 0, 0], scale: [0.5, 0.5, 0.5],
-          mass: numbers[1] || 2, velocity: [0, 0, 0], color: '#ff6b6b'
+          mass: numbers[0] || 2, velocity: [0, 0, 0], color: '#ff6b6b'
         });
         objects.push({
           id: 'ground', name: '地面', type: 'plane',
@@ -504,8 +504,8 @@ export class ParameterExtractorNode extends WorkflowNode {
         });
         objects.push({
           id: 'mass_block', name: '振子', type: 'cube',
-          position: [numbers[0] || 0.2, 1, 0], rotation: [0, 0, 0], scale: [0.6, 0.6, 0.6],
-          mass: numbers[1] || 1, color: '#a29bfe'
+          position: [numbers[numbers.length > 2 ? 2 : 0] || 0.2, 1, 0], rotation: [0, 0, 0], scale: [0.6, 0.6, 0.6],
+          mass: numbers[0] || 1, color: '#a29bfe'
         });
         objects.push({
           id: 'spring_coil', name: '弹簧', type: 'cylinder',
