@@ -120,10 +120,12 @@ export interface PhysicsLaw {
 export interface ExperimentScene {
   id: string;
   name: string;
+  sceneType: 'freefall' | 'pendulum' | 'spring' | 'projectile' | 'ramp' | 'electromagnetism' | 'optics' | 'thermodynamics' | 'waves' | 'modern_physics' | 'default';
   objects: PhysicsObject[];
   environment: EnvironmentConfig;
   camera: { position: [number, number, number]; target: [number, number, number] };
   lighting: { type: string; intensity: number; position: [number, number, number] }[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface PhysicsCalculations {
@@ -435,60 +437,144 @@ export class ParameterExtractorNode extends WorkflowNode {
     }
   }
   
+  // 推断具体实验子类型
+  private inferSceneType(text: string, experimentType: ExperimentType): ExperimentScene['sceneType'] {
+    const lower = text.toLowerCase();
+    if (experimentType === 'mechanics') {
+      if (/单摆|pendulum|摆动|周期/.test(lower)) return 'pendulum';
+      if (/弹簧|spring|振子|简谐|振动|弹性/.test(lower)) return 'spring';
+      if (/平抛|抛体|抛物线|水平抛|projectile/.test(lower)) return 'projectile';
+      if (/斜面|斜坡|ramp|下滑|倾斜/.test(lower)) return 'ramp';
+      if (/自由落体|落下|free.?fall|下落|掉落/.test(lower)) return 'freefall';
+      return 'freefall';
+    }
+    if (experimentType === 'electromagnetism') return 'electromagnetism';
+    if (experimentType === 'optics') return 'optics';
+    if (experimentType === 'thermodynamics') return 'thermodynamics';
+    if (experimentType === 'waves') return 'waves';
+    return 'default';
+  }
+  
   private extractParameters(parsedInput: ParsedInput, experimentType: ExperimentType): PhysicsParameters {
     const text = parsedInput.originalText;
-    const objects: PhysicsObject[] = [];
-    
-    // 提取数值参数
     const numberPattern = /(\d+(?:\.\d+)?)/g;
     const numbers = text.match(numberPattern)?.map(Number) || [];
+    const sceneType = this.inferSceneType(text, experimentType);
+    const objects: PhysicsObject[] = [];
     
-    // 根据实验类型创建默认对象
-    switch (experimentType) {
-      case 'mechanics':
+    // 根据具体实验类型创建对象
+    switch (sceneType) {
+      case 'freefall':
         objects.push({
-          id: 'ball_1',
-          name: '小球',
-          type: 'sphere',
+          id: 'ball_1', name: '小球', type: 'sphere',
           position: [0, numbers[0] || 10, 0],
-          rotation: [0, 0, 0],
-          scale: [0.5, 0.5, 0.5],
-          mass: numbers[1] || 1,
-          velocity: [0, 0, 0],
-          color: '#4a90d9'
+          rotation: [0, 0, 0], scale: [0.5, 0.5, 0.5],
+          mass: numbers[1] || 2, velocity: [0, 0, 0], color: '#ff6b6b'
+        });
+        objects.push({
+          id: 'ground', name: '地面', type: 'plane',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [10, 0.1, 10],
+          mass: 0, color: '#3a5a7a'
         });
         break;
+
+      case 'pendulum':
+        objects.push({
+          id: 'pivot', name: '悬挂点', type: 'sphere',
+          position: [0, 3, 0], rotation: [0, 0, 0], scale: [0.2, 0.2, 0.2],
+          color: '#ffd700'
+        });
+        objects.push({
+          id: 'bob', name: '摆球', type: 'sphere',
+          position: [numbers[1] || 1, 1, 0], rotation: [0, 0, 0], scale: [0.4, 0.4, 0.4],
+          mass: numbers[0] || 0.5, color: '#4ecdc4'
+        });
+        objects.push({
+          id: 'string_line', name: '摆线', type: 'cylinder',
+          position: [0, 2, 0], rotation: [0, 0, 0], scale: [0.03, 2, 0.03],
+          color: '#a0b0c0'
+        });
+        break;
+
+      case 'spring':
+        objects.push({
+          id: 'wall', name: '墙壁', type: 'cube',
+          position: [-3, 1.5, 0], rotation: [0, 0, 0], scale: [0.3, 3, 2],
+          color: '#636e72'
+        });
+        objects.push({
+          id: 'mass_block', name: '振子', type: 'cube',
+          position: [numbers[0] || 0.2, 1, 0], rotation: [0, 0, 0], scale: [0.6, 0.6, 0.6],
+          mass: numbers[1] || 1, color: '#a29bfe'
+        });
+        objects.push({
+          id: 'spring_coil', name: '弹簧', type: 'cylinder',
+          position: [-1.5, 1, 0], rotation: [0, 0, Math.PI / 2], scale: [0.1, 1.5, 0.1],
+          color: '#ffeaa7'
+        });
+        break;
+
+      case 'projectile':
+        objects.push({
+          id: 'ball_1', name: '小球', type: 'sphere',
+          position: [0, numbers[0] || 5, 0], rotation: [0, 0, 0], scale: [0.4, 0.4, 0.4],
+          mass: numbers[1] || 0.5, color: '#fd79a8'
+        });
+        objects.push({
+          id: 'ground', name: '地面', type: 'plane',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [15, 0.1, 5],
+          mass: 0, color: '#3a5a7a'
+        });
+        break;
+
+      case 'ramp':
+        objects.push({
+          id: 'ramp_plane', name: '斜面', type: 'ramp',
+          position: [0, 2, 0], rotation: [0, 0, Math.PI / 6], scale: [5, 0.2, 2],
+          color: '#636e72'
+        });
+        objects.push({
+          id: 'block_1', name: '滑块', type: 'cube',
+          position: [0, 4, 0], rotation: [0, 0, Math.PI / 6], scale: [0.5, 0.5, 0.5],
+          mass: numbers[0] || 1, color: '#ffeaa7'
+        });
+        objects.push({
+          id: 'ground', name: '地面', type: 'plane',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [10, 0.1, 5],
+          mass: 0, color: '#3a5a7a'
+        });
+        break;
+
       case 'electromagnetism':
         objects.push({
-          id: 'charge_1',
-          name: '电荷',
-          type: 'sphere',
-          position: [0, 0, 0],
-          rotation: [0, 0, 0],
-          scale: [0.3, 0.3, 0.3],
-          charge: numbers[0] || 1,
-          color: '#ff6b6b'
+          id: 'charge_1', name: '电荷', type: 'sphere',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [0.3, 0.3, 0.3],
+          charge: numbers[0] || 1, color: '#ff6b6b'
+        });
+        objects.push({
+          id: 'charge_2', name: '电荷', type: 'sphere',
+          position: [3, 0, 0], rotation: [0, 0, 0], scale: [0.3, 0.3, 0.3],
+          charge: numbers[1] || -1, color: '#1e90ff'
         });
         break;
+
       case 'optics':
         objects.push({
-          id: 'lens_1',
-          name: '透镜',
-          type: 'lens',
-          position: [0, 0, 0],
-          rotation: [0, 0, 0],
-          scale: [1, 2, 0.1],
+          id: 'lens_1', name: '透镜', type: 'lens',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 2, 0.1],
           color: '#87ceeb'
         });
+        objects.push({
+          id: 'light_source', name: '光源', type: 'sphere',
+          position: [-5, 0, 0], rotation: [0, 0, 0], scale: [0.2, 0.2, 0.2],
+          color: '#ffd700'
+        });
         break;
+
       default:
         objects.push({
-          id: 'object_1',
-          name: '物体',
-          type: 'cube',
-          position: [0, 0, 0],
-          rotation: [0, 0, 0],
-          scale: [1, 1, 1],
+          id: 'object_1', name: '物体', type: 'cube',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
           color: '#4a90d9'
         });
     }
@@ -497,11 +583,11 @@ export class ParameterExtractorNode extends WorkflowNode {
       objects,
       environment: {
         gravity: [0, -9.8, 0],
-        friction: 0.1,
+        friction: sceneType === 'ramp' ? 0 : 0.1,
         airResistance: 0.01
       },
       timeRange: { start: 0, end: 10, step: 0.016 },
-      initialConditions: {}
+      initialConditions: { sceneType } as any
     };
   }
 }
@@ -582,21 +668,32 @@ export class SceneBuilderNode extends WorkflowNode {
   }
   
   private buildScene(parameters: PhysicsParameters, experimentType: ExperimentType): ExperimentScene {
+    const sceneType = (parameters.initialConditions as any)?.sceneType || 'freefall';
     return {
       id: `scene_${Date.now()}`,
       name: this.getSceneName(experimentType),
+      sceneType,
       objects: parameters.objects,
       environment: parameters.environment,
-      camera: {
-        position: [10, 8, 10],
-        target: [0, 0, 0]
-      },
+      camera: this.getCameraForScene(sceneType),
       lighting: [
         { type: 'ambient', intensity: 0.4, position: [0, 0, 0] },
         { type: 'directional', intensity: 0.8, position: [10, 10, 5] },
         { type: 'point', intensity: 0.5, position: [-5, 5, -5] }
-      ]
+      ],
+      metadata: { experimentType, sceneType }
     };
+  }
+
+  private getCameraForScene(sceneType: string): { position: [number, number, number]; target: [number, number, number] } {
+    switch (sceneType) {
+      case 'pendulum': return { position: [6, 4, 8], target: [0, 2, 0] };
+      case 'spring': return { position: [8, 3, 8], target: [0, 1.5, 0] };
+      case 'projectile': return { position: [12, 6, 12], target: [3, 2, 0] };
+      case 'ramp': return { position: [8, 5, 8], target: [2, 2, 0] };
+      case 'freefall': return { position: [8, 6, 10], target: [0, 4, 0] };
+      default: return { position: [10, 8, 10], target: [0, 0, 0] };
+    }
   }
   
   private getSceneName(experimentType: ExperimentType): string {
@@ -621,7 +718,8 @@ export class PhysicsCalculatorNode extends WorkflowNode {
       const { parameters, physicsLaws, experimentType } = state;
       if (!parameters || !physicsLaws || !experimentType) throw new Error('缺少必要信息');
       
-      const calculations = this.performCalculations(parameters, physicsLaws, experimentType);
+      const sceneType = (parameters.initialConditions as any)?.sceneType || 'freefall';
+      const calculations = this.performCalculations(parameters, physicsLaws, sceneType);
       
       return this.transitionTo({
         ...state,
@@ -632,40 +730,137 @@ export class PhysicsCalculatorNode extends WorkflowNode {
     }
   }
   
-  private performCalculations(parameters: PhysicsParameters, _laws: PhysicsLaw[], experimentType: ExperimentType): PhysicsCalculations {
+  private performCalculations(parameters: PhysicsParameters, _laws: PhysicsLaw[], sceneType: string): PhysicsCalculations {
     const steps: CalculationStep[] = [];
     const { timeRange, objects, environment } = parameters;
     const g = Math.abs(environment.gravity[1]);
-    
-    // 能量分析
     const kinetic: number[] = [];
     const potential: number[] = [];
     const total: number[] = [];
     
-    for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
-      const stepObjects: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
-      
-      objects.forEach(obj => {
-        if (experimentType === 'mechanics') {
-          // 自由落体运动计算
-          const y = obj.position[1] - 0.5 * g * t * t;
+    switch (sceneType) {
+      case 'freefall': {
+        const obj = objects[0];
+        const y0 = obj.position[1];
+        const mass = obj.mass || 1;
+        
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const y = Math.max(0, y0 - 0.5 * g * t * t);
           const vy = -g * t;
-          
-          stepObjects[obj.id] = {
-            position: [obj.position[0], Math.max(0, y), obj.position[2]],
-            velocity: [0, vy, 0]
-          };
-          
-          // 计算能量
-          const mass = obj.mass || 1;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[obj.id] = { position: [obj.position[0], y, obj.position[2]], velocity: [0, vy, 0] };
+          steps.push({ time: t, objects: stepObj });
           const v = Math.abs(vy);
           kinetic.push(0.5 * mass * v * v);
-          potential.push(mass * g * Math.max(0, y));
-          total.push(0.5 * mass * v * v + mass * g * Math.max(0, y));
+          potential.push(mass * g * y);
+          total.push(0.5 * mass * v * v + mass * g * y);
         }
-      });
+        break;
+      }
       
-      steps.push({ time: t, objects: stepObjects });
+      case 'pendulum': {
+        const bob = objects.find(o => o.id === 'bob') || objects[1];
+        const pivot = objects.find(o => o.id === 'pivot') || objects[0];
+        const pivotY = pivot.position[1];
+        const length = Math.abs(pivotY - bob.position[1]);
+        const omega = Math.sqrt(g / length);
+        const theta0 = Math.asin(Math.abs(bob.position[0] - pivot.position[0]) / length) || 0.5;
+        const mass = bob.mass || 1;
+        
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const theta = theta0 * Math.cos(omega * t);
+          const bx = pivot.position[0] + length * Math.sin(theta);
+          const by = pivotY - length * Math.cos(theta);
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[bob.id] = { position: [bx, by, 0], velocity: [0, 0, 0] };
+          steps.push({ time: t, objects: stepObj });
+          const v = length * omega * theta0 * Math.abs(Math.sin(omega * t));
+          const h = Math.max(0, by);
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(mass * g * h);
+          total.push(0.5 * mass * v * v + mass * g * h);
+        }
+        break;
+      }
+      
+      case 'spring': {
+        const block = objects.find(o => o.id === 'mass_block') || objects[1];
+        const x0 = block.position[0];
+        const mass = block.mass || 1;
+        const k = 100; // 弹簧系数
+        const omega = Math.sqrt(k / mass);
+        
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const x = x0 * Math.cos(omega * t);
+          const vx = -x0 * omega * Math.sin(omega * t);
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[block.id] = { position: [x, block.position[1], block.position[2]], velocity: [vx, 0, 0] };
+          steps.push({ time: t, objects: stepObj });
+          const v = Math.abs(vx);
+          const pe = 0.5 * k * x * x;
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(pe);
+          total.push(0.5 * mass * v * v + pe);
+        }
+        break;
+      }
+      
+      case 'projectile': {
+        const obj = objects[0];
+        const y0 = obj.position[1];
+        const vx0 = objects.length > 1 ? 10 : 10; // 水平初速度
+        const mass = obj.mass || 1;
+        
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const x = vx0 * t;
+          const y = Math.max(0, y0 - 0.5 * g * t * t);
+          const vy = -g * t;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[obj.id] = { position: [x, y, obj.position[2]], velocity: [vx0, vy, 0] };
+          steps.push({ time: t, objects: stepObj });
+          const v = Math.sqrt(vx0 * vx0 + vy * vy);
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(mass * g * y);
+          total.push(0.5 * mass * v * v + mass * g * y);
+        }
+        break;
+      }
+      
+      case 'ramp': {
+        const block = objects.find(o => o.id === 'block_1') || objects[1];
+        const angle = Math.PI / 6;
+        const mass = block.mass || 1;
+        const a = g * Math.sin(angle);
+        const startX = block.position[0];
+        const startY = block.position[1];
+        
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const s = 0.5 * a * t * t;
+          const x = startX + s * Math.cos(angle);
+          const y = Math.max(0, startY - s * Math.sin(angle));
+          const v = a * t;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[block.id] = { position: [x, y, block.position[2]], velocity: [v * Math.cos(angle), -v * Math.sin(angle), 0] };
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(mass * g * y);
+          total.push(0.5 * mass * v * v + mass * g * y);
+        }
+        break;
+      }
+      
+      default: {
+        const obj = objects[0];
+        const mass = obj.mass || 1;
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[obj.id] = { position: obj.position, velocity: [0, 0, 0] };
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0);
+          potential.push(0);
+          total.push(0);
+        }
+      }
     }
     
     return {
@@ -815,52 +1010,112 @@ export class DescriptionGeneratorNode extends WorkflowNode {
     parameters: PhysicsParameters,
     calculations: PhysicsCalculations
   ): string {
+    const sceneType = (parameters.initialConditions as any)?.sceneType || 'freefall';
     const obj = parameters.objects[0];
-    const finalState = calculations.steps[calculations.steps.length - 1]?.objects[obj.id];
-    
-    const descriptions: Record<ExperimentType, string> = {
-      mechanics: `这是一个力学实验模拟。实验中，一个质量为${obj.mass || 1}kg的${obj.name}从高度${obj.position[1]}m处自由落下。
-      
+    const lawsText = physicsLaws.map(law => `- ${law.name}：${law.formula}，${law.description}`).join('\n');
+    const initPE = calculations.energyAnalysis.potential[0]?.toFixed(2) || '0';
+    const finalKE = calculations.energyAnalysis.kinetic[calculations.energyAnalysis.kinetic.length - 1]?.toFixed(2) || '0';
+
+    const sceneDescriptions: Record<string, string> = {
+      freefall: `这是一个自由落体实验模拟。一个质量为${obj.mass || 1}kg的${obj.name}从高度${obj.position[1]}m处自由落下。
+
 实验过程：
 1. 初始状态：物体位于高度${obj.position[1]}m处，初速度为0
-2. 运动过程：物体在重力作用下加速下落，遵循自由落体运动规律
+2. 运动过程：物体在重力作用下加速下落，遵循自由落体运动规律 h = ½gt²
 3. 最终状态：物体到达地面（高度为0m），速度达到最大值
 
 涉及的物理定律：
-${physicsLaws.map(law => `- ${law.name}：${law.formula}，${law.description}`).join('\n')}
+${lawsText}
 
 能量分析：
-- 初始势能：${calculations.energyAnalysis.potential[0]?.toFixed(2) || 0} J
-- 最终动能：${calculations.energyAnalysis.kinetic[calculations.energyAnalysis.kinetic.length - 1]?.toFixed(2) || 0} J
+- 初始势能：${initPE} J
+- 最终动能：${finalKE} J
 - 能量守恒验证：整个过程中总能量保持不变，验证了能量守恒定律`,
+
+      pendulum: `这是一个单摆实验模拟。摆长${Math.abs((parameters.objects.find(o => o.id === 'pivot') || parameters.objects[0]).position[1] - (parameters.objects.find(o => o.id === 'bob') || parameters.objects[1]).position[1])}m，摆球质量${(parameters.objects.find(o => o.id === 'bob') || parameters.objects[1]).mass || 0.5}kg。
+
+实验过程：
+1. 初始状态：摆球偏离平衡位置，具有最大势能
+2. 运动过程：摆球在重力作用下做周期性摆动，动能和势能相互转化
+3. 周期规律：单摆周期 T = 2π√(L/g)，与摆长有关，与摆球质量无关
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 初始势能：${initPE} J
+- 最大动能：${finalKE} J`,
+
+      spring: `这是一个弹簧振子实验模拟。物体质量${(parameters.objects.find(o => o.id === 'mass_block') || parameters.objects[1]).mass || 1}kg，弹簧系数100N/m，初始偏离平衡位置${(parameters.objects.find(o => o.id === 'mass_block') || parameters.objects[1]).position[0]}m。
+
+实验过程：
+1. 初始状态：物体偏离平衡位置，弹簧具有最大弹性势能
+2. 运动过程：物体在弹簧弹力作用下做简谐振动
+3. 周期规律：周期 T = 2π√(m/k)，周期与质量平方根成正比
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 初始弹性势能：${initPE} J
+- 最大动能：${finalKE} J`,
+
+      projectile: `这是一个平抛运动实验模拟。${obj.name}从高度${obj.position[1]}m处以水平初速度10m/s抛出。
+
+实验过程：
+1. 初始状态：物体在高度${obj.position[1]}m处，具有水平初速度
+2. 运动过程：水平方向匀速直线运动，竖直方向自由落体运动
+3. 轨迹特征：运动轨迹为抛物线
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 初始势能：${initPE} J
+- 最终动能：${finalKE} J`,
+
+      ramp: `这是一个斜面下滑实验模拟。一个质量为${(parameters.objects.find(o => o.id === 'block_1') || parameters.objects[1]).mass || 1}kg的物体在30°光滑斜面顶端从静止开始下滑。
+
+实验过程：
+1. 初始状态：物体位于斜面顶端，具有最大势能
+2. 运动过程：物体在重力分力作用下沿斜面加速下滑，加速度 a = g·sin30° = 4.9m/s²
+3. 最终状态：物体到达斜面底端，速度达到最大值
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 初始势能：${initPE} J
+- 最终动能：${finalKE} J
+- 能量守恒验证：势能完全转化为动能`,
 
       electromagnetism: `这是一个电磁学实验模拟。实验展示了电荷间的相互作用和电磁场效应。
 
 涉及的物理定律：
-${physicsLaws.map(law => `- ${law.name}：${law.formula}，${law.description}`).join('\n')}`,
+${lawsText}`,
 
       optics: `这是一个光学实验模拟。实验展示了光的传播、折射和成像规律。
 
 涉及的物理定律：
-${physicsLaws.map(law => `- ${law.name}：${law.formula}，${law.description}`).join('\n')}`,
+${lawsText}`,
 
       thermodynamics: `这是一个热力学实验模拟。实验展示了热量传递和热力学过程。
 
 涉及的物理定律：
-${physicsLaws.map(law => `- ${law.name}：${law.formula}，${law.description}`).join('\n')}`,
+${lawsText}`,
 
       waves: `这是一个波动实验模拟。实验展示了波的传播和干涉现象。
 
 涉及的物理定律：
-${physicsLaws.map(law => `- ${law.name}：${law.formula}，${law.description}`).join('\n')}`,
+${lawsText}`,
 
       modern_physics: `这是一个现代物理实验模拟。实验展示了量子力学和相对论效应。
 
 涉及的物理定律：
-${physicsLaws.map(law => `- ${law.name}：${law.formula}，${law.description}`).join('\n')}`
+${lawsText}`
     };
     
-    return descriptions[experimentType];
+    return sceneDescriptions[sceneType] || sceneDescriptions.freefall;
   }
 }
 
