@@ -329,6 +329,19 @@ interface PhysicsRendererProps {
 export default function PhysicsRenderer({ scene, animations, currentTime, isPlaying }: PhysicsRendererProps) {
   const [webglError, setWebglError] = useState(false);
 
+  // 在渲染前检测 WebGL 支持
+  useEffect(() => {
+    try {
+      const canvas = document.createElement('canvas');
+      const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      if (!gl) {
+        setWebglError(true);
+      }
+    } catch {
+      setWebglError(true);
+    }
+  }, []);
+
   return (
     <div className="physics-canvas-container">
       {webglError ? (
