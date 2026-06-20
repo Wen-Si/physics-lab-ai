@@ -10,6 +10,7 @@ import PhysicsRenderer from '../components/PhysicsRenderer';
 import KnowledgeGraphVisualizer from '../components/KnowledgeGraphVisualizer';
 import { workflowEngine, ExperimentOutput, WorkflowState } from '../workflow/engine';
 import { extractKnowledgeGraph, ExtractionResult } from '../knowledge/extraction-engine';
+import { callZhipuAI, parseAIResponse, enhancedPhysicsUnderstanding } from '../api/zhipu';
 
 // 预设实验模板
 const EXPERIMENT_TEMPLATES = [
@@ -106,8 +107,76 @@ export default function Home() {
         setProcessingStep(prev => Math.min(prev + 1, 12));
       }, 150);
 
-      const state = await workflowEngine.execute(userInput);
+      // 步骤 1-2: 借助智谱AI真正"理解"自然语言（而非仅靠关键词匹配）
+      // 提取自然语言中的物理参数：实验类型、初始高度、角度、质量、速度等
+      let aiParams: Record<string, any> = {};
+      let aiSceneType: string | undefined;
+      let aiLaws: string[] = [];
+      let aiDescription: string = '';
+      try {
+        const aiRaw = await callZhipuAI({ userInput });
+        const parsed = parseAIResponse(aiRaw);
+        if (parsed) {
+          aiParams = (parsed.parameters as Record<string, any>) || {};
+          aiSceneType = parsed.experimentType;
+          aiLaws = parsed.physicsLaws || [];
+          aiDescription = parsed.description || '';
+        }
+      } catch (e) {
+        // AI 不可用时降级到工作流规则匹配
+        console.warn('智谱AI不可用，使用本地规则匹配:', e);
+      }
+
+      // 将 AI 解析出的参数注入到用户输入的上下文里，让工作流节点能"看到"这些参数
+      // 这样物体位置、质量、角度等就会按照自然语言中的描述生成
+      let augmentedInput = userInput;
+      if (aiParams && Object.keys(aiParams).length > 0) {
+        const paramHints: string[] = [];
+        if (aiParams.mass !== undefined) paramHints.push(`质量${aiParams.mass}kg`);
+        if (aiParams.initialHeight !== undefined) paramHints.push(`初始高度${aiParams.initialHeight}m`);
+        if (aiParams.angle !== undefined) paramHints.push(`斜面角度${aiParams.angle}度`);
+        if (aiParams.inclineAngle !== undefined) paramHints.push(`斜面角度${aiParams.inclineAngle}度`);
+        if (aiParams.initialVelocity !== undefined) paramHints.push(`初速度${aiParams.initialVelocity}m/s`);
+        if (aiParams.horizontalVelocity !== undefined) paramHints.push(`水平初速度${aiParams.horizontalVelocity}m/s`);
+        if (aiParams.length !== undefined) paramHints.push(`摆长${aiParams.length}m`);
+        if (aiParams.springConstant !== undefined) paramHints.push(`弹簧系数${aiParams.springConstant}N/m`);
+        if (aiParams.amplitude !== undefined) paramHints.push(`振幅${aiParams.amplitude}m`);
+        if (aiParams.distance !== undefined) paramHints.push(`距离${aiParams.distance}m`);
+        if (aiParams.height !== undefined) paramHints.push(`高度${aiParams.height}m`);
+        if (aiParams.gravity !== undefined) paramHints.push(`重力${aiParams.gravity}m/s²`);
+        if (paramHints.length > 0) {
+          augmentedInput = `${userInput} [AI识别的参数: ${paramHints.join('，')}]`;
+        }
+      }
+
+      const state = await workflowEngine.execute(augmentedInput);
       setWorkflowState(state);
+
+      // 步骤 3-5: 用 AI 解析结果对工作流输出做增强
+      // 让3D实验真正按照自然语言的描述来制作
+      if (state.output && aiParams && Object.keys(aiParams).length > 0) {
+        try {
+          const enhanced = await enhancedPhysicsUnderstanding(userInput, {
+            experimentType: state.experimentType || 'mechanics',
+            parameters: state.parameters as unknown as Record<string, unknown>,
+            physicsLaws: state.physicsLaws?.map(l => l.name) || []
+          });
+          // 把 AI 识别的额外参数覆盖到工作流的场景对象上
+          const additionalParams = enhanced.additionalParameters || aiParams;
+          if (additionalParams && Object.keys(additionalParams).length > 0) {
+            applyAIParamsToScene(state, additionalParams);
+            // 强制 scene 引用更新，触发 PhysicsRenderer 重新构建
+            if (state.scene) {
+              state.scene = { ...state.scene, objects: [...state.scene.objects] };
+              if (state.output) {
+                state.output = { ...state.output, scene: state.scene };
+              }
+            }
+          }
+        } catch (e) {
+          // 增强失败不影响主流程
+        }
+      }
 
       clearInterval(progressTimer);
       setProcessingStep(12);
@@ -134,6 +203,59 @@ export default function Home() {
       setTimeout(() => setIsProcessing(false), 400);
     }
   }, [userInput]);
+
+  // 把 AI 识别出的参数（角度、质量、高度、初速度等）应用到 3D 场景对象上
+  // 这样 3D 实验才能真正按照自然语言的描述来制作
+  const applyAIParamsToScene = (state: WorkflowState, aiParams: Record<string, unknown>) => {
+    if (!state.scene) return;
+    const objs = state.scene.objects;
+    const sceneType = (state.scene.metadata as any)?.sceneType;
+    const num = (v: unknown, dflt = 0) => (typeof v === 'number' && isFinite(v)) ? v : dflt;
+
+    for (const obj of objs) {
+      // 通用：质量
+      if (typeof aiParams.mass === 'number') obj.mass = aiParams.mass;
+    }
+
+    if (sceneType === 'ramp') {
+      const ramp = objs.find(o => o.id === 'ramp_plane');
+      const block = objs.find(o => o.id === 'block_1');
+      // 角度（支持"angle"或"inclineAngle"，中文描述中也可能直接给"30度"）
+      const angleDeg = (typeof aiParams.angle === 'number') ? aiParams.angle
+        : (typeof aiParams.inclineAngle === 'number') ? aiParams.inclineAngle
+        : 30;
+      const angleRad = angleDeg * Math.PI / 180;
+      if (ramp) {
+        ramp.rotation = [0, 0, angleRad];
+        const rampLength = (ramp.scale && ramp.scale[0]) || 5;
+        // 重新计算斜面高端位置
+        const rampHighX = (rampLength / 2) * Math.cos(angleRad);
+        const rampHighY = (ramp.position[1] || 2) + (rampLength / 2) * Math.sin(angleRad) + 0.3;
+        if (block) {
+          block.position = [rampHighX, rampHighY, 0];
+          block.rotation = [0, 0, angleRad];
+        }
+      }
+    } else if (sceneType === 'freefall') {
+      const ball = objs.find(o => o.id === 'ball_1');
+      const h = num(aiParams.initialHeight ?? aiParams.height, 10);
+      if (ball) ball.position = [0, h, 0];
+    } else if (sceneType === 'pendulum') {
+      const bob = objs.find(o => o.id === 'bob');
+      const pivot = objs.find(o => o.id === 'pivot');
+      const lengthVal = num(aiParams.length ?? aiParams.pendulumLength, 1);
+      if (pivot) pivot.position = [0, lengthVal + 1, 0];
+      if (bob) bob.position = [num(aiParams.amplitude ?? aiParams.initialOffset, lengthVal * 0.5), 1, 0];
+    } else if (sceneType === 'spring') {
+      const block = objs.find(o => o.id === 'mass_block');
+      const amp = num(aiParams.amplitude ?? aiParams.initialOffset, 0.2);
+      if (block) block.position = [amp, 1, 0];
+    } else if (sceneType === 'projectile') {
+      const ball = objs.find(o => o.id === 'ball_1');
+      const h = num(aiParams.initialHeight ?? aiParams.height, 5);
+      if (ball) ball.position = [0, h, 0];
+    }
+  };
 
   // 动画播放控制
   useEffect(() => {

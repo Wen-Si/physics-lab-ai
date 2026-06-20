@@ -238,7 +238,6 @@ body {
   box-shadow: var(--shadow-sm);
   transition: all var(--transition-normal);
   position: relative;
-  overflow: hidden;
 }
 
 .panel-section::before {

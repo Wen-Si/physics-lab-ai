@@ -527,15 +527,24 @@ export class ParameterExtractorNode extends WorkflowNode {
         });
         break;
 
-      case 'ramp':
+      case 'ramp': {
+        // 斜面绕Z轴旋转+Math.PI/6 → 几何上 +X 端为高端（顶端），-X 端为低端（底端）
+        // 物体应放置在斜面 +X 端（高端），让它自然向 -X 方向（左侧下坡）滑动
+        const rampLength = 5;
+        const rampAngle = Math.PI / 6;
+        const rampCenterY = 2;
+        const rampHighX = (rampLength / 2) * Math.cos(rampAngle);  // ≈ 2.165
+        const rampHighY = rampCenterY + (rampLength / 2) * Math.sin(rampAngle) + 0.3;
         objects.push({
           id: 'ramp_plane', name: '斜面', type: 'ramp',
-          position: [0, 2, 0], rotation: [0, 0, Math.PI / 6], scale: [5, 0.2, 2],
+          position: [0, rampCenterY, 0], rotation: [0, 0, rampAngle], scale: [rampLength, 0.2, 2],
           color: '#636e72'
         });
         objects.push({
           id: 'block_1', name: '滑块', type: 'cube',
-          position: [0, 4, 0], rotation: [0, 0, Math.PI / 6], scale: [0.5, 0.5, 0.5],
+          position: [rampHighX, rampHighY, 0],
+          rotation: [0, 0, rampAngle],
+          scale: [0.5, 0.5, 0.5],
           mass: numbers[0] || 1, color: '#ffeaa7'
         });
         objects.push({
@@ -544,6 +553,7 @@ export class ParameterExtractorNode extends WorkflowNode {
           mass: 0, color: '#3a5a7a'
         });
         break;
+      }
 
       case 'electromagnetism':
         objects.push({
@@ -827,20 +837,51 @@ export class PhysicsCalculatorNode extends WorkflowNode {
       }
       
       case 'ramp': {
+        // 斜面绕Z轴旋转+Math.PI/6 → 几何上 +X 端为高端（顶端），-X 端为低端（底端）
+        // 物体应从 +X 端的高端开始，向 -X 方向下坡滑动
+        const ramp = objects.find(o => o.id === 'ramp_plane') || objects[0];
         const block = objects.find(o => o.id === 'block_1') || objects[1];
-        const angle = Math.PI / 6;
+        const angle = (ramp.rotation && ramp.rotation[2]) || Math.PI / 6;
         const mass = block.mass || 1;
         const a = g * Math.sin(angle);
-        const startX = block.position[0];
-        const startY = block.position[1];
-        
+        // 起点：斜面高端（+X 方向）
+        // 斜面长5，中心在 x=0，所以高端在 x = (5/2)*cos(angle) ≈ 2.165
+        const rampLength = (ramp.scale && ramp.scale[0]) || 5;
+        const startX = (rampLength / 2) * Math.cos(angle);
+        // 起点高度：高端的高度 = 中心高度 + (5/2)*sin(angle)
+        const startY = (ramp.position[1] || 2) + (rampLength / 2) * Math.sin(angle) + 0.3;
+        // 终点：斜面低端（-X 方向）落到地面
+        const endX = -(rampLength / 2) * Math.cos(angle);
+        const endY = (ramp.position[1] || 2) - (rampLength / 2) * Math.sin(angle);
+
         for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
-          const s = 0.5 * a * t * t;
-          const x = startX + s * Math.cos(angle);
-          const y = Math.max(0, startY - s * Math.sin(angle));
-          const v = a * t;
+          // 阶段1：物体在斜面上，从高端滑到低端
+          // 沿斜面方向的位移 s = 0.5 * a * t²
+          const rampTime = Math.sqrt(2 * rampLength / a); // 滑到斜面底端所需时间
+          let x: number, y: number, v: number;
+          if (t <= rampTime) {
+            // 沿斜面下滑：从 (startX, startY) 移动到 (endX, endY)
+            const s = Math.min(rampLength, 0.5 * a * t * t);
+            const fraction = s / rampLength;
+            x = startX + (endX - startX) * fraction;
+            // 沿斜面方向：水平位移 s*cos(angle)（向 -X），竖直位移 s*sin(angle)（向下）
+            y = startY - s * Math.sin(angle);
+            v = a * t;
+          } else {
+            // 阶段2：物体离开斜面，沿地面继续滑动（带摩擦或惯性）
+            // 离开斜面后，物体位于低端，沿水平方向继续
+            const timeAfterRamp = t - rampTime;
+            const vx0 = a * rampTime * Math.cos(angle); // 离开时的水平速度分量
+            const vy0 = a * rampTime * Math.sin(angle); // 离开时的竖直速度（向下）
+            x = endX + vx0 * timeAfterRamp;
+            y = Math.max(0, endY - vy0 * timeAfterRamp + 0.5 * 0); // 沿地面运动
+            v = a * rampTime;
+          }
           const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
-          stepObj[block.id] = { position: [x, y, block.position[2]], velocity: [v * Math.cos(angle), -v * Math.sin(angle), 0] };
+          stepObj[block.id] = {
+            position: [x, y, block.position[2]],
+            velocity: [-v * Math.cos(angle), -v * Math.sin(angle), 0] // 向 -X（左侧）下坡
+          };
           steps.push({ time: t, objects: stepObj });
           kinetic.push(0.5 * mass * v * v);
           potential.push(mass * g * y);
