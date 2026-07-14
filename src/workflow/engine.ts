@@ -708,6 +708,40 @@ export class ParameterExtractorNode extends WorkflowNode {
         });
     }
     
+    // 根据实验场景计算合理的仿真时间范围
+    const g = 9.8;
+    let timeEnd = 10;
+    switch (sceneType) {
+      case 'freefall': {
+        const h = objects[0]?.position?.[1] || 10;
+        timeEnd = Math.min(10, Math.sqrt(2 * h / g) * 1.5);
+        break;
+      }
+      case 'projectile': {
+        const h = objects[0]?.position?.[1] || 5;
+        timeEnd = Math.min(10, Math.sqrt(2 * h / g) * 1.5);
+        break;
+      }
+      case 'angled_projectile': {
+        const vy0 = objects[0]?.velocity?.[1] ?? 15 * Math.sin(Math.PI / 4);
+        const y0 = objects[0]?.position?.[1] || 0.5;
+        const flightTime = (vy0 + Math.sqrt(vy0 * vy0 + 2 * g * y0)) / g;
+        timeEnd = Math.min(10, flightTime * 1.3);
+        break;
+      }
+      case 'collision':
+        timeEnd = 5;
+        break;
+      case 'ramp':
+        timeEnd = 5;
+        break;
+      case 'atwood':
+        timeEnd = 5;
+        break;
+      default:
+        timeEnd = 10;
+    }
+
     return {
       objects,
       environment: {
@@ -715,7 +749,7 @@ export class ParameterExtractorNode extends WorkflowNode {
         friction: sceneType === 'ramp' ? 0 : 0.1,
         airResistance: 0.01
       },
-      timeRange: { start: 0, end: 10, step: 0.016 },
+      timeRange: { start: 0, end: timeEnd, step: 0.016 },
       initialConditions: { sceneType } as any
     };
   }
@@ -879,10 +913,18 @@ export class PhysicsCalculatorNode extends WorkflowNode {
         const obj = objects[0];
         const y0 = obj.position[1];
         const mass = obj.mass || 1;
+        const groundTime = Math.sqrt(2 * y0 / g); // 落地时间
         
         for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
-          const y = Math.max(0, y0 - 0.5 * g * t * t);
-          const vy = -g * t;
+          let y: number, vy: number;
+          if (t <= groundTime) {
+            y = y0 - 0.5 * g * t * t;
+            vy = -g * t;
+          } else {
+            // 物体已落地 — 速度归零，能量不再变化
+            y = 0;
+            vy = 0;
+          }
           const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
           stepObj[obj.id] = { position: [obj.position[0], y, obj.position[2]], velocity: [0, vy, 0] };
           steps.push({ time: t, objects: stepObj });
@@ -946,15 +988,26 @@ export class PhysicsCalculatorNode extends WorkflowNode {
         const y0 = obj.position[1];
         const vx0 = objects.length > 1 ? 10 : 10; // 水平初速度
         const mass = obj.mass || 1;
+        const groundTime = Math.sqrt(2 * y0 / g); // 落地时间
         
         for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
-          const x = vx0 * t;
-          const y = Math.max(0, y0 - 0.5 * g * t * t);
-          const vy = -g * t;
+          let x: number, y: number, vy: number, vCurr: number;
+          if (t <= groundTime) {
+            x = vx0 * t;
+            y = y0 - 0.5 * g * t * t;
+            vy = -g * t;
+            vCurr = vx0;
+          } else {
+            // 物体已落地 — 速度归零
+            x = vx0 * groundTime;
+            y = 0;
+            vy = 0;
+            vCurr = 0;
+          }
           const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
-          stepObj[obj.id] = { position: [x, y, obj.position[2]], velocity: [vx0, vy, 0] };
+          stepObj[obj.id] = { position: [x, y, obj.position[2]], velocity: [vCurr, vy, 0] };
           steps.push({ time: t, objects: stepObj });
-          const v = Math.sqrt(vx0 * vx0 + vy * vy);
+          const v = Math.sqrt(vCurr * vCurr + vy * vy);
           kinetic.push(0.5 * mass * v * v);
           potential.push(mass * g * y);
           total.push(0.5 * mass * v * v + mass * g * y);
@@ -1090,14 +1143,27 @@ export class PhysicsCalculatorNode extends WorkflowNode {
         const vx0 = ball.velocity?.[0] ?? 15 * Math.cos(Math.PI / 4);
         const vy0 = ball.velocity?.[1] ?? 15 * Math.sin(Math.PI / 4);
         const y0 = ball.position[1];
+        // 计算落地时间：y₀ + vy₀·t - ½g·t² = 0
+        const discriminant = vy0 * vy0 + 2 * g * y0;
+        const flightTime = discriminant > 0 ? (vy0 + Math.sqrt(discriminant)) / g : 5;
         for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
-          const x = vx0 * t;
-          const y = Math.max(0, y0 + vy0 * t - 0.5 * g * t * t);
-          const vy = vy0 - g * t;
+          let x: number, y: number, vy: number, vxCurr: number;
+          if (t <= flightTime) {
+            x = vx0 * t;
+            y = y0 + vy0 * t - 0.5 * g * t * t;
+            vy = vy0 - g * t;
+            vxCurr = vx0;
+          } else {
+            // 物体已落地 — 速度归零
+            x = vx0 * flightTime;
+            y = 0;
+            vy = 0;
+            vxCurr = 0;
+          }
           const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
-          stepObj[ball.id] = { position: [x, y, 0], velocity: [vx0, vy, 0] };
+          stepObj[ball.id] = { position: [x, y, 0], velocity: [vxCurr, vy, 0] };
           steps.push({ time: t, objects: stepObj });
-          const v = Math.sqrt(vx0 * vx0 + vy * vy);
+          const v = Math.sqrt(vxCurr * vxCurr + vy * vy);
           kinetic.push(0.5 * mass * v * v);
           potential.push(mass * g * y);
           total.push(0.5 * mass * v * v + mass * g * y);

@@ -595,7 +595,18 @@ export default function Home() {
                       <div className="energy-bar"><div className="energy-bar-fill kinetic" style={{ width: `${Math.min(100, (experimentOutput.calculations.energyAnalysis.kinetic[experimentOutput.calculations.energyAnalysis.kinetic.length - 1] || 0) * 5)}%` }} /></div>
                     </div>
                   </div>
-                  <div className="energy-summary">✅ 能量守恒验证通过</div>
+                  {(() => {
+                    const ea = experimentOutput.calculations.energyAnalysis;
+                    const maxTotal = Math.max(...ea.total);
+                    const minTotal = Math.min(...ea.total);
+                    const variation = maxTotal - minTotal;
+                    const isConserved = variation < Math.max(0.5, Math.abs(maxTotal) * 0.05);
+                    return (
+                      <div className="energy-summary" style={{ color: isConserved ? 'var(--signal)' : 'var(--alert)' }}>
+                        {isConserved ? '✅ 能量守恒验证通过' : `⚠️ 能量守恒存在偏差（变化量: ${variation.toFixed(2)} J）`}
+                      </div>
+                    );
+                  })()}
                 </section>
               )}
 

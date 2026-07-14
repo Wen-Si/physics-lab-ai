@@ -219,7 +219,6 @@ export default function KnowledgeGraphVisualizer({
 
   // 拖动处理
   const handleMouseDown = useCallback((nodeId: string, e: React.MouseEvent) => {
-    e.preventDefault();
     e.stopPropagation();
     const node = nodePositions.find(n => n.id === nodeId);
     if (!node) return;
@@ -332,7 +331,7 @@ export default function KnowledgeGraphVisualizer({
 
       {/* SVG画布 */}
       <div onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={() => { handleMouseUp(); setHoveredNode(null); }} onWheel={handleWheel} style={{ position: 'relative' }}>
-        <svg ref={svgRef} width={width} height={height} style={{ background: 'radial-gradient(ellipse at center, rgba(74, 144, 217, 0.05) 0%, transparent 70%)', cursor: isDragging ? 'grabbing' : 'grab', display: 'block' }}>
+        <svg ref={svgRef} width={width} height={height} style={{ background: 'radial-gradient(ellipse at center, rgba(74, 144, 217, 0.05) 0%, transparent 70%)', cursor: isDragging ? 'grabbing' : 'grab', display: 'block', userSelect: 'none', WebkitUserSelect: 'none' }}>
           <defs>
             {Object.entries(OBJECT_TYPE_COLORS).map(([type, color]) => (
               <filter key={type} id={`glow-${type}`} x="-50%" y="-50%" width="200%" height="200%">
