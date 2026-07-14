@@ -1388,7 +1388,7 @@ export class DescriptionGeneratorNode extends WorkflowNode {
     const obj = parameters.objects.find(o => o.id === 'ball_1' || o.id === 'bob' || o.id === 'block_1' || o.id === 'mass_block' || o.id === 'planet' || o.id === 'mass_1') || parameters.objects[0];
     const lawsText = physicsLaws.map(law => `- ${law.name}：${law.formula}，${law.description}`).join('\n');
     const initPE = calculations.energyAnalysis.potential[0]?.toFixed(2) || '0';
-    const finalKE = calculations.energyAnalysis.kinetic[calculations.energyAnalysis.kinetic.length - 1]?.toFixed(2) || '0';
+    const finalKE = Math.max(...calculations.energyAnalysis.kinetic, 0).toFixed(2);
 
     const sceneDescriptions: Record<string, string> = {
       freefall: `这是一个自由落体实验模拟。一个质量为${obj.mass || 1}kg的${obj.name}从高度${obj.position[1]}m处自由落下。
@@ -1403,7 +1403,7 @@ ${lawsText}
 
 能量分析：
 - 初始势能：${initPE} J
-- 最终动能：${finalKE} J
+- 最大动能：${finalKE} J
 - 能量守恒验证：整个过程中总能量保持不变，验证了能量守恒定律`,
 
       pendulum: `这是一个单摆实验模拟。摆长${Math.abs((parameters.objects.find(o => o.id === 'pivot') || parameters.objects[0]).position[1] - (parameters.objects.find(o => o.id === 'bob') || parameters.objects[1]).position[1])}m，摆球质量${(parameters.objects.find(o => o.id === 'bob') || parameters.objects[1]).mass || 0.5}kg。
@@ -1446,7 +1446,7 @@ ${lawsText}
 
 能量分析：
 - 初始势能：${initPE} J
-- 最终动能：${finalKE} J`,
+- 最大动能：${finalKE} J`,
 
       ramp: `这是一个斜面下滑实验模拟。一个质量为${(parameters.objects.find(o => o.id === 'block_1') || parameters.objects[1]).mass || 1}kg的物体在30°光滑斜面顶端从静止开始下滑。
 
@@ -1460,7 +1460,7 @@ ${lawsText}
 
 能量分析：
 - 初始势能：${initPE} J
-- 最终动能：${finalKE} J
+- 最大动能：${finalKE} J
 - 能量守恒验证：势能完全转化为动能`,
 
       circular: `这是一个匀速圆周运动实验模拟。质量为${obj.mass || 1}kg的小球在半径为${Math.abs(obj.position[0])}m的水平圆轨道上做匀速圆周运动。

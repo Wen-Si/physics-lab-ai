@@ -591,14 +591,17 @@ export default function Home() {
                       <div className="energy-bar"><div className="energy-bar-fill potential" style={{ width: `${Math.min(100, (experimentOutput.calculations.energyAnalysis.potential[0] || 0) * 5)}%` }} /></div>
                     </div>
                     <div className="energy-bar-item">
-                      <div className="energy-bar-label"><span>最终动能</span><span>{(experimentOutput.calculations.energyAnalysis.kinetic[experimentOutput.calculations.energyAnalysis.kinetic.length - 1] || 0).toFixed(2)} J</span></div>
-                      <div className="energy-bar"><div className="energy-bar-fill kinetic" style={{ width: `${Math.min(100, (experimentOutput.calculations.energyAnalysis.kinetic[experimentOutput.calculations.energyAnalysis.kinetic.length - 1] || 0) * 5)}%` }} /></div>
+                      <div className="energy-bar-label"><span>最大动能</span><span>{Math.max(...experimentOutput.calculations.energyAnalysis.kinetic, 0).toFixed(2)} J</span></div>
+                      <div className="energy-bar"><div className="energy-bar-fill kinetic" style={{ width: `${Math.min(100, Math.max(...experimentOutput.calculations.energyAnalysis.kinetic, 0) * 5)}%` }} /></div>
                     </div>
                   </div>
                   {(() => {
                     const ea = experimentOutput.calculations.energyAnalysis;
-                    const maxTotal = Math.max(...ea.total);
-                    const minTotal = Math.min(...ea.total);
+                    // 仅检查非零能量阶段的守恒性（排除落地后静止阶段）
+                    const activeTotal = ea.total.filter(v => Math.abs(v) > 0.01);
+                    const checkArr = activeTotal.length > 0 ? activeTotal : ea.total;
+                    const maxTotal = Math.max(...checkArr);
+                    const minTotal = Math.min(...checkArr);
                     const variation = maxTotal - minTotal;
                     const isConserved = variation < Math.max(0.5, Math.abs(maxTotal) * 0.05);
                     return (
