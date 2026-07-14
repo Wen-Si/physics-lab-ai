@@ -189,11 +189,13 @@ export default function Home() {
       if (state.output) {
         setExperimentOutput(state.output);
 
+        const sceneType = (state.scene?.metadata as any)?.sceneType as string | undefined;
         const knowledge = extractKnowledgeGraph(
           userInput,
           state.experimentType || 'mechanics',
           state.physicsLaws?.map(l => l.name) || [],
-          (state.parameters || {}) as Record<string, unknown>
+          (state.parameters || {}) as Record<string, unknown>,
+          sceneType
         );
         setKnowledgeResult(knowledge);
 
@@ -520,6 +522,29 @@ export default function Home() {
 
             {activePanel === 'graph' && knowledgeResult && (
               <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
+                {/* Palantir 本体论摘要 */}
+                <div style={{
+                  padding: '12px 16px', marginBottom: '12px',
+                  background: 'linear-gradient(135deg, rgba(0, 230, 118, 0.08), rgba(0, 229, 255, 0.06))',
+                  border: '1px solid rgba(0, 230, 118, 0.2)',
+                  borderRadius: '10px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '14px' }}>🏛️</span>
+                    <span style={{ fontSize: '13px', color: '#00e676', fontWeight: 'bold' }}>Palantir 本体论知识图谱</span>
+                  </div>
+                  <p style={{ fontSize: '12px', color: '#a0b0c0', lineHeight: '1.6', margin: 0 }}>
+                    {knowledgeResult.summary}
+                  </p>
+                  <div style={{ display: 'flex', gap: '12px', marginTop: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '11px', color: '#6ab0ff' }}>Object: {knowledgeResult.ontologyMetadata.objectCount}</span>
+                    <span style={{ fontSize: '11px', color: '#ff7043' }}>Link: {knowledgeResult.ontologyMetadata.linkCount}</span>
+                    <span style={{ fontSize: '11px', color: '#00e676' }}>Action: {knowledgeResult.ontologyMetadata.actionCount}</span>
+                    {knowledgeResult.sceneType && (
+                      <span style={{ fontSize: '11px', color: '#ffd54f' }}>Scene: {knowledgeResult.sceneType}</span>
+                    )}
+                  </div>
+                </div>
                 <KnowledgeGraphVisualizer graph={knowledgeResult.graph} width={750} height={480} title="物理知识图谱" />
               </div>
             )}
