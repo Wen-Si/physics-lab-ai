@@ -120,7 +120,7 @@ export interface PhysicsLaw {
 export interface ExperimentScene {
   id: string;
   name: string;
-  sceneType: 'freefall' | 'pendulum' | 'spring' | 'projectile' | 'ramp' | 'electromagnetism' | 'optics' | 'thermodynamics' | 'waves' | 'modern_physics' | 'default';
+  sceneType: 'freefall' | 'pendulum' | 'spring' | 'projectile' | 'ramp' | 'circular' | 'collision' | 'angled_projectile' | 'atwood' | 'orbital' | 'electromagnetism' | 'optics' | 'thermodynamics' | 'waves' | 'modern_physics' | 'default';
   objects: PhysicsObject[];
   environment: EnvironmentConfig;
   camera: { position: [number, number, number]; target: [number, number, number] };
@@ -443,8 +443,13 @@ export class ParameterExtractorNode extends WorkflowNode {
     if (experimentType === 'mechanics') {
       if (/单摆|pendulum|摆动|周期/.test(lower)) return 'pendulum';
       if (/弹簧|spring|振子|简谐|振动|弹性/.test(lower)) return 'spring';
+      if (/斜抛|斜上抛|angled|仰角/.test(lower)) return 'angled_projectile';
       if (/平抛|抛体|抛物线|水平抛|projectile/.test(lower)) return 'projectile';
       if (/斜面|斜坡|ramp|下滑|倾斜/.test(lower)) return 'ramp';
+      if (/碰撞|collision|撞/.test(lower)) return 'collision';
+      if (/圆周|circular|匀速圆周|向心/.test(lower)) return 'circular';
+      if (/滑轮|pulley|atwood|阿特伍德/.test(lower)) return 'atwood';
+      if (/轨道|行星|planet|orbit|引力|万有引力|卫星/.test(lower)) return 'orbital';
       if (/自由落体|落下|free.?fall|下落|掉落/.test(lower)) return 'freefall';
       return 'freefall';
     }
@@ -555,6 +560,111 @@ export class ParameterExtractorNode extends WorkflowNode {
         break;
       }
 
+      case 'circular': {
+        // 匀速圆周运动 — 小球在水平面上做圆周运动
+        const radius = numbers[0] || 3;
+        const mass = numbers[1] || 1;
+        objects.push({
+          id: 'center_pole', name: '圆心', type: 'cylinder',
+          position: [0, 0.5, 0], rotation: [0, 0, 0], scale: [0.15, 1, 0.15],
+          color: '#636e72'
+        });
+        objects.push({
+          id: 'ball_1', name: '小球', type: 'sphere',
+          position: [radius, 1, 0], rotation: [0, 0, 0], scale: [0.4, 0.4, 0.4],
+          mass, velocity: [0, 0, 3], color: '#00d2d3'
+        });
+        objects.push({
+          id: 'ground', name: '地面', type: 'plane',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [12, 0.1, 12],
+          mass: 0, color: '#1a2a3a'
+        });
+        break;
+      }
+
+      case 'collision': {
+        // 弹性碰撞 — 两个小球在水平面上对碰
+        const m1 = numbers[0] || 1;
+        const m2 = numbers[1] || 1;
+        objects.push({
+          id: 'ball_1', name: '小球A', type: 'sphere',
+          position: [-4, 1, 0], rotation: [0, 0, 0], scale: [0.5, 0.5, 0.5],
+          mass: m1, velocity: [3, 0, 0], color: '#ff6b6b'
+        });
+        objects.push({
+          id: 'ball_2', name: '小球B', type: 'sphere',
+          position: [4, 1, 0], rotation: [0, 0, 0], scale: [0.5, 0.5, 0.5],
+          mass: m2, velocity: [-2, 0, 0], color: '#54a0ff'
+        });
+        objects.push({
+          id: 'ground', name: '地面', type: 'plane',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [15, 0.1, 5],
+          mass: 0, color: '#1a2a3a'
+        });
+        break;
+      }
+
+      case 'angled_projectile': {
+        // 斜抛运动 — 小球以一定角度抛出
+        const angleDeg = numbers[0] || 45;
+        const v0 = numbers[1] || 15;
+        objects.push({
+          id: 'ball_1', name: '小球', type: 'sphere',
+          position: [0, 0.5, 0], rotation: [0, 0, 0], scale: [0.4, 0.4, 0.4],
+          mass: numbers[2] || 1, velocity: [v0 * Math.cos(angleDeg * Math.PI / 180), v0 * Math.sin(angleDeg * Math.PI / 180), 0],
+          color: '#feca57'
+        });
+        objects.push({
+          id: 'ground', name: '地面', type: 'plane',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [25, 0.1, 5],
+          mass: 0, color: '#1a2a3a'
+        });
+        break;
+      }
+
+      case 'atwood': {
+        // 阿特伍德机（滑轮系统）— 两个质量通过绳子和滑轮连接
+        const m1 = numbers[0] || 2;
+        const m2 = numbers[1] || 1;
+        objects.push({
+          id: 'pulley', name: '滑轮', type: 'cylinder',
+          position: [0, 5, 0], rotation: [Math.PI / 2, 0, 0], scale: [0.6, 0.1, 0.6],
+          color: '#a0b0c0'
+        });
+        objects.push({
+          id: 'mass_1', name: '重物', type: 'cube',
+          position: [-1.5, 3.5, 0], rotation: [0, 0, 0], scale: [0.6, 0.6, 0.6],
+          mass: m1, color: '#ff6b6b'
+        });
+        objects.push({
+          id: 'mass_2', name: '轻物', type: 'cube',
+          position: [1.5, 3.5, 0], rotation: [0, 0, 0], scale: [0.5, 0.5, 0.5],
+          mass: m2, color: '#54a0ff'
+        });
+        objects.push({
+          id: 'ground', name: '地面', type: 'plane',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [8, 0.1, 4],
+          mass: 0, color: '#1a2a3a'
+        });
+        break;
+      }
+
+      case 'orbital': {
+        // 行星轨道运动 — 行星绕恒星做圆周运动
+        const orbitRadius = numbers[0] || 5;
+        objects.push({
+          id: 'star', name: '恒星', type: 'sphere',
+          position: [0, 4, 0], rotation: [0, 0, 0], scale: [1.2, 1.2, 1.2],
+          mass: 1000, color: '#feca57'
+        });
+        objects.push({
+          id: 'planet', name: '行星', type: 'sphere',
+          position: [orbitRadius, 4, 0], rotation: [0, 0, 0], scale: [0.5, 0.5, 0.5],
+          mass: 1, color: '#54a0ff'
+        });
+        break;
+      }
+
       case 'electromagnetism':
         objects.push({
           id: 'charge_1', name: '电荷', type: 'sphere',
@@ -628,7 +738,9 @@ export class PhysicsLawMatcherNode extends WorkflowNode {
         { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] },
         { name: '自由落体运动', formula: 'h = ½gt²', description: '物体在重力作用下的运动', applicableObjects: ['sphere'] },
         { name: '动量守恒定律', formula: 'm₁v₁ + m₂v₂ = m₁v₁\' + m₂v₂\'', description: '系统总动量保持不变', applicableObjects: ['sphere', 'cube'] },
-        { name: '能量守恒定律', formula: 'E = KE + PE', description: '系统总能量保持不变', applicableObjects: ['all'] }
+        { name: '能量守恒定律', formula: 'E = KE + PE', description: '系统总能量保持不变', applicableObjects: ['all'] },
+        { name: '万有引力定律', formula: 'F = GMm/r²', description: '两物体间的引力与质量乘积成正比，与距离平方成反比', applicableObjects: ['sphere'] },
+        { name: '向心力公式', formula: 'F = mv²/r', description: '匀速圆周运动所需的向心力', applicableObjects: ['sphere'] }
       ],
       electromagnetism: [
         { name: '库仑定律', formula: 'F = kq₁q₂/r²', description: '电荷间的作用力', applicableObjects: ['sphere'] },
@@ -702,6 +814,11 @@ export class SceneBuilderNode extends WorkflowNode {
       case 'projectile': return { position: [12, 6, 12], target: [3, 2, 0] };
       case 'ramp': return { position: [8, 5, 8], target: [2, 2, 0] };
       case 'freefall': return { position: [8, 6, 10], target: [0, 4, 0] };
+      case 'circular': return { position: [10, 8, 10], target: [0, 1, 0] };
+      case 'collision': return { position: [0, 5, 12], target: [0, 1, 0] };
+      case 'angled_projectile': return { position: [12, 6, 12], target: [5, 3, 0] };
+      case 'atwood': return { position: [6, 4, 8], target: [0, 3, 0] };
+      case 'orbital': return { position: [12, 8, 12], target: [0, 4, 0] };
       default: return { position: [10, 8, 10], target: [0, 0, 0] };
     }
   }
@@ -890,6 +1007,145 @@ export class PhysicsCalculatorNode extends WorkflowNode {
         break;
       }
       
+      case 'circular': {
+        // 匀速圆周运动：x = r·cos(ωt), z = r·sin(ωt)
+        const ball = objects.find(o => o.id === 'ball_1') || objects[0];
+        const radius = Math.abs(ball.position[0]) || 3;
+        const mass = ball.mass || 1;
+        const omega = 2; // 角速度 rad/s
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const angle = omega * t;
+          const x = radius * Math.cos(angle);
+          const z = radius * Math.sin(angle);
+          const vx = -radius * omega * Math.sin(angle);
+          const vz = radius * omega * Math.cos(angle);
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[ball.id] = { position: [x, ball.position[1], z], velocity: [vx, 0, vz] };
+          steps.push({ time: t, objects: stepObj });
+          const v = radius * omega;
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(0);
+          total.push(0.5 * mass * v * v);
+        }
+        break;
+      }
+
+      case 'collision': {
+        // 弹性碰撞：动量守恒 + 动能守恒
+        const ball1 = objects.find(o => o.id === 'ball_1') || objects[0];
+        const ball2 = objects.find(o => o.id === 'ball_2') || objects[1];
+        const m1 = ball1.mass || 1;
+        const m2 = ball2.mass || 1;
+        let v1 = (ball1.velocity?.[0]) ?? 3;
+        let v2 = (ball2.velocity?.[0]) ?? -2;
+        const x1_0 = ball1.position[0];
+        const x2_0 = ball2.position[0];
+        const r1 = (ball1.scale?.[0] || 0.5) / 2;
+        const r2 = (ball2.scale?.[0] || 0.5) / 2;
+        const collisionDist = r1 + r2;
+        // 碰撞后的速度（一维弹性碰撞公式）
+        const v1f = ((m1 - m2) * v1 + 2 * m2 * v2) / (m1 + m2);
+        const v2f = ((m2 - m1) * v2 + 2 * m1 * v1) / (m1 + m2);
+        let collided = false;
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          let p1x: number, p2x: number;
+          if (!collided) {
+            p1x = x1_0 + v1 * t;
+            p2x = x2_0 + v2 * t;
+            if (Math.abs(p2x - p1x) <= collisionDist) {
+              collided = true;
+              v1 = v1f; v2 = v2f;
+            }
+          } else {
+            const tc = t - (collided ? t : 0);
+            p1x = x1_0 + v1f * t;
+            p2x = x2_0 + v2f * t;
+          }
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[ball1.id] = { position: [p1x!, ball1.position[1], 0], velocity: [collided ? v1f : v1, 0, 0] };
+          stepObj[ball2.id] = { position: [p2x!, ball2.position[1], 0], velocity: [collided ? v2f : v2, 0, 0] };
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0.5 * m1 * (collided ? v1f : v1) ** 2 + 0.5 * m2 * (collided ? v2f : v2) ** 2);
+          potential.push(0);
+          total.push(0.5 * m1 * (collided ? v1f : v1) ** 2 + 0.5 * m2 * (collided ? v2f : v2) ** 2);
+        }
+        break;
+      }
+
+      case 'angled_projectile': {
+        // 斜抛运动：x = v₀cos(θ)·t, y = y₀ + v₀sin(θ)·t - ½gt²
+        const ball = objects.find(o => o.id === 'ball_1') || objects[0];
+        const mass = ball.mass || 1;
+        const vx0 = ball.velocity?.[0] ?? 15 * Math.cos(Math.PI / 4);
+        const vy0 = ball.velocity?.[1] ?? 15 * Math.sin(Math.PI / 4);
+        const y0 = ball.position[1];
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const x = vx0 * t;
+          const y = Math.max(0, y0 + vy0 * t - 0.5 * g * t * t);
+          const vy = vy0 - g * t;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[ball.id] = { position: [x, y, 0], velocity: [vx0, vy, 0] };
+          steps.push({ time: t, objects: stepObj });
+          const v = Math.sqrt(vx0 * vx0 + vy * vy);
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(mass * g * y);
+          total.push(0.5 * mass * v * v + mass * g * y);
+        }
+        break;
+      }
+
+      case 'atwood': {
+        // 阿特伍德机：a = (m₁-m₂)g/(m₁+m₂)
+        const m1Obj = objects.find(o => o.id === 'mass_1') || objects[0];
+        const m2Obj = objects.find(o => o.id === 'mass_2') || objects[1];
+        const m1 = m1Obj.mass || 2;
+        const m2 = m2Obj.mass || 1;
+        const a = (m1 - m2) * g / (m1 + m2);
+        const y1_0 = m1Obj.position[1];
+        const y2_0 = m2Obj.position[1];
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          // m1 下降，m2 上升
+          const dy = 0.5 * a * t * t;
+          const y1 = Math.max(0.3, y1_0 - dy);
+          const y2 = Math.min(4.5, y2_0 + dy);
+          const v = a * t;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[m1Obj.id] = { position: [m1Obj.position[0], y1, 0], velocity: [0, -v, 0] };
+          stepObj[m2Obj.id] = { position: [m2Obj.position[0], y2, 0], velocity: [0, v, 0] };
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0.5 * m1 * v * v + 0.5 * m2 * v * v);
+          potential.push(m1 * g * y1 + m2 * g * y2);
+          total.push(0.5 * m1 * v * v + 0.5 * m2 * v * v + m1 * g * y1 + m2 * g * y2);
+        }
+        break;
+      }
+
+      case 'orbital': {
+        // 行星轨道运动：ω = √(GM/r³)
+        const star = objects.find(o => o.id === 'star') || objects[0];
+        const planet = objects.find(o => o.id === 'planet') || objects[1];
+        const orbitR = Math.abs(planet.position[0] - star.position[0]) || 5;
+        const mass = planet.mass || 1;
+        const GM = 50; // 简化的引力参数
+        const omega = Math.sqrt(GM / (orbitR ** 3));
+        const starY = star.position[1];
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const angle = omega * t;
+          const x = star.position[0] + orbitR * Math.cos(angle);
+          const z = orbitR * Math.sin(angle);
+          const vx = -orbitR * omega * Math.sin(angle);
+          const vz = orbitR * omega * Math.cos(angle);
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[planet.id] = { position: [x, starY, z], velocity: [vx, 0, vz] };
+          steps.push({ time: t, objects: stepObj });
+          const v = orbitR * omega;
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(-GM * mass / orbitR);
+          total.push(0.5 * mass * v * v - GM * mass / orbitR);
+        }
+        break;
+      }
+
       default: {
         const obj = objects[0];
         const mass = obj.mass || 1;
@@ -1129,6 +1385,81 @@ ${lawsText}
 - 初始势能：${initPE} J
 - 最终动能：${finalKE} J
 - 能量守恒验证：势能完全转化为动能`,
+
+      circular: `这是一个匀速圆周运动实验模拟。质量为${obj.mass || 1}kg的小球在半径为${Math.abs(obj.position[0])}m的水平圆轨道上做匀速圆周运动。
+
+实验过程：
+1. 初始状态：小球位于圆周上，具有切向速度
+2. 运动过程：小球受向心力作用，速度方向不断改变但大小不变
+3. 运动特征：向心加速度 a = v²/r，周期 T = 2πr/v
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 动能：${finalKE} J（保持不变）
+- 势能：0 J（水平面运动）
+- 总能量守恒`,
+
+      collision: `这是一个弹性碰撞实验模拟。质量为${(parameters.objects.find(o => o.id === 'ball_1') || parameters.objects[0]).mass || 1}kg的小球A与质量为${(parameters.objects.find(o => o.id === 'ball_2') || parameters.objects[1]).mass || 1}kg的小球B在光滑水平面上发生正碰。
+
+实验过程：
+1. 初始状态：两球分别以不同速度相向运动
+2. 碰撞过程：动量守恒且动能守恒，速度按弹性碰撞公式交换
+3. 碰撞后：两球分别以新速度分离运动
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 碰撞前总动能：${initPE} J
+- 碰撞后总动能：${finalKE} J
+- 动能守恒验证：弹性碰撞中动能不损失`,
+
+      angled_projectile: `这是一个斜抛运动实验模拟。小球以${obj.velocity ? Math.round(Math.sqrt(obj.velocity[0]**2 + obj.velocity[1]**2)) : 15}m/s的初速度、${obj.velocity ? Math.round(Math.atan2(obj.velocity[1], obj.velocity[0]) * 180 / Math.PI) : 45}°仰角抛出。
+
+实验过程：
+1. 初始状态：小球具有斜向上方的初速度
+2. 运动过程：水平方向匀速直线运动，竖直方向匀变速直线运动
+3. 轨迹特征：运动轨迹为抛物线，射程 R = v₀²sin(2θ)/g
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 初始动能：${finalKE} J
+- 最高点势能：${initPE} J
+- 能量守恒验证：动能与势能相互转化`,
+
+      atwood: `这是一个阿特伍德机实验模拟。质量为${(parameters.objects.find(o => o.id === 'mass_1') || parameters.objects[0]).mass || 2}kg和${(parameters.objects.find(o => o.id === 'mass_2') || parameters.objects[1]).mass || 1}kg的两个物体通过轻绳跨过定滑轮连接。
+
+实验过程：
+1. 初始状态：两物体处于同一高度，系统静止
+2. 运动过程：较重物体加速下降，较轻物体加速上升
+3. 加速度：a = (m₁-m₂)g/(m₁+m₂)
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 系统总动能：${finalKE} J
+- 系统总势能：${initPE} J
+- 能量守恒验证：势能减少等于动能增加`,
+
+      orbital: `这是一个行星轨道运动实验模拟。行星绕恒星做匀速圆周运动，轨道半径${Math.abs((parameters.objects.find(o => o.id === 'planet') || parameters.objects[1]).position[0] - (parameters.objects.find(o => o.id === 'star') || parameters.objects[0]).position[0])}m。
+
+实验过程：
+1. 初始状态：行星位于轨道某一点，具有切向速度
+2. 运动过程：万有引力提供向心力，行星沿圆形轨道运动
+3. 运动特征：轨道速度 v = √(GM/r)，周期 T = 2π√(r³/GM)
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 动能：${finalKE} J
+- 引力势能：${initPE} J
+- 总机械能守恒`,
 
       electromagnetism: `这是一个电磁学实验模拟。实验展示了电荷间的相互作用和电磁场效应。
 

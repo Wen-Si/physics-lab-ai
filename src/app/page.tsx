@@ -12,13 +12,18 @@ import { workflowEngine, ExperimentOutput, WorkflowState } from '../workflow/eng
 import { extractKnowledgeGraph, ExtractionResult } from '../knowledge/extraction-engine';
 import { callZhipuAI, parseAIResponse, enhancedPhysicsUnderstanding } from '../api/zhipu';
 
-// 预设实验模板
+// 预设实验模板 — 10种经典力学实验
 const EXPERIMENT_TEMPLATES = [
   { title: '自由落体', icon: '⬇', color: '#ff6b6b', prompt: '一个质量为2kg的小球从10米高处自由落下，不计空气阻力，模拟其下落过程' },
   { title: '单摆运动', icon: '↺', color: '#4ecdc4', prompt: '演示单摆的周期运动，摆长1米，初始角度30度，模拟摆动过程' },
   { title: '弹簧振子', icon: '〰', color: '#a29bfe', prompt: '一个质量为1kg的物体连接在弹簧上，弹簧系数为100N/m，从平衡位置偏离0.2m后释放，模拟简谐振动' },
   { title: '平抛运动', icon: '→', color: '#fd79a8', prompt: '一个小球从5米高处以10m/s的水平速度抛出，模拟其平抛运动轨迹' },
-  { title: '斜面下滑', icon: '◣', color: '#ffeaa7', prompt: '一个1kg的物体在30度角的光滑斜面顶端从静止开始下滑，模拟整个过程' }
+  { title: '斜面下滑', icon: '◣', color: '#ffeaa7', prompt: '一个1kg的物体在30度角的光滑斜面顶端从静止开始下滑，模拟整个过程' },
+  { title: '圆周运动', icon: '◌', color: '#00d2d3', prompt: '一个1kg的小球在半径3m的水平圆轨道上做匀速圆周运动，模拟其运动过程' },
+  { title: '弹性碰撞', icon: '◉', color: '#ff6b6b', prompt: '一个1kg的小球以3m/s向右运动，与静止的1kg小球发生弹性碰撞，模拟碰撞过程' },
+  { title: '斜抛运动', icon: '⤴', color: '#feca57', prompt: '一个小球以15m/s的初速度、45度仰角抛出，模拟斜抛运动轨迹' },
+  { title: '滑轮系统', icon: '⊕', color: '#54a0ff', prompt: '阿特伍德机：2kg和1kg的两个物体通过轻绳跨过定滑轮连接，模拟运动过程' },
+  { title: '行星轨道', icon: '★', color: '#feca57', prompt: '一颗行星绕恒星做匀速圆周运动，轨道半径5m，模拟轨道运动' }
 ];
 
 // localStorage 工具函数
@@ -254,6 +259,30 @@ export default function Home() {
       const ball = objs.find(o => o.id === 'ball_1');
       const h = num(aiParams.initialHeight ?? aiParams.height, 5);
       if (ball) ball.position = [0, h, 0];
+    } else if (sceneType === 'circular') {
+      const ball = objs.find(o => o.id === 'ball_1');
+      const r = num(aiParams.radius, 3);
+      if (ball) ball.position = [r, ball.position[1] || 1, 0];
+    } else if (sceneType === 'collision') {
+      const ball1 = objs.find(o => o.id === 'ball_1');
+      const ball2 = objs.find(o => o.id === 'ball_2');
+      if (ball1 && typeof aiParams.mass === 'number') ball1.mass = aiParams.mass;
+      if (ball2 && typeof aiParams.mass2 === 'number') ball2.mass = aiParams.mass2;
+    } else if (sceneType === 'angled_projectile') {
+      const ball = objs.find(o => o.id === 'ball_1');
+      const angle = num(aiParams.angle, 45) * Math.PI / 180;
+      const v0 = num(aiParams.initialVelocity, 15);
+      if (ball) ball.velocity = [v0 * Math.cos(angle), v0 * Math.sin(angle), 0];
+    } else if (sceneType === 'atwood') {
+      const m1 = objs.find(o => o.id === 'mass_1');
+      const m2 = objs.find(o => o.id === 'mass_2');
+      if (m1 && typeof aiParams.mass === 'number') m1.mass = aiParams.mass;
+      if (m2 && typeof aiParams.mass2 === 'number') m2.mass = aiParams.mass2;
+    } else if (sceneType === 'orbital') {
+      const planet = objs.find(o => o.id === 'planet');
+      const star = objs.find(o => o.id === 'star');
+      const r = num(aiParams.orbitRadius ?? aiParams.radius, 5);
+      if (star && planet) planet.position = [star.position[0] + r, star.position[1], 0];
     }
   };
 
@@ -324,7 +353,7 @@ export default function Home() {
             <div className="logo-icon">⚛</div>
             <div className="logo-text">
               <h1>物理实验室 AI</h1>
-              <span>Physics Lab Simulator · 12节点工作流 · 知识图谱</span>
+              <span>Physics Lab · 12节点工作流 · 10种实验 · 知识图谱</span>
             </div>
           </div>
           <div className="header-info">
@@ -471,6 +500,7 @@ export default function Home() {
                       <div className="welcome-features">
                         <div className="feature-item"><span className="feature-icon">📝</span><span>自然语言输入</span></div>
                         <div className="feature-item"><span className="feature-icon">⚙</span><span>12节点工作流</span></div>
+                        <div className="feature-item"><span className="feature-icon">🧪</span><span>10种实验</span></div>
                         <div className="feature-item"><span className="feature-icon">🎨</span><span>实时3D渲染</span></div>
                         <div className="feature-item"><span className="feature-icon">🧠</span><span>知识图谱</span></div>
                       </div>
