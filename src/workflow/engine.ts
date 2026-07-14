@@ -1318,7 +1318,7 @@ export class DescriptionGeneratorNode extends WorkflowNode {
     calculations: PhysicsCalculations
   ): string {
     const sceneType = (parameters.initialConditions as any)?.sceneType || 'freefall';
-    const obj = parameters.objects[0];
+    const obj = parameters.objects.find(o => o.id === 'ball_1' || o.id === 'bob' || o.id === 'block_1' || o.id === 'mass_block' || o.id === 'planet' || o.id === 'mass_1') || parameters.objects[0];
     const lawsText = physicsLaws.map(law => `- ${law.name}：${law.formula}，${law.description}`).join('\n');
     const initPE = calculations.energyAnalysis.potential[0]?.toFixed(2) || '0';
     const finalKE = calculations.energyAnalysis.kinetic[calculations.energyAnalysis.kinetic.length - 1]?.toFixed(2) || '0';
