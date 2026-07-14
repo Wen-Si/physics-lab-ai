@@ -562,8 +562,10 @@ export class ParameterExtractorNode extends WorkflowNode {
 
       case 'circular': {
         // 匀速圆周运动 — 小球在水平面上做圆周运动
-        const radius = numbers[0] || 3;
-        const mass = numbers[1] || 1;
+        const radiusM = text.match(/半径\s*(\d+(?:\.\d+)?)/);
+        const massM = text.match(/质量\s*(?:为)?\s*(\d+(?:\.\d+)?)/);
+        const radius = radiusM ? Number(radiusM[1]) : (numbers.find(n => n >= 2) || 3);
+        const mass = massM ? Number(massM[1]) : (numbers.find(n => n < 2 && n > 0) || 1);
         objects.push({
           id: 'center_pole', name: '圆心', type: 'cylinder',
           position: [0, 0.5, 0], rotation: [0, 0, 0], scale: [0.15, 1, 0.15],
@@ -584,12 +586,15 @@ export class ParameterExtractorNode extends WorkflowNode {
 
       case 'collision': {
         // 弹性碰撞 — 两个小球在水平面上对碰
-        const m1 = numbers[0] || 1;
-        const m2 = numbers[1] || 1;
+        const massMatches = text.match(/(\d+(?:\.\d+)?)\s*kg/g);
+        const m1 = massMatches ? Number(massMatches[0].replace(/kg/, '')) : (numbers[0] || 1);
+        const m2 = massMatches && massMatches.length > 1 ? Number(massMatches[1].replace(/kg/, '')) : (massMatches ? m1 : (numbers[1] || 1));
+        const velMatch = text.match(/(\d+(?:\.\d+)?)\s*m\/s/);
+        const v1init = velMatch ? Number(velMatch[1]) : 3;
         objects.push({
           id: 'ball_1', name: '小球A', type: 'sphere',
           position: [-4, 1, 0], rotation: [0, 0, 0], scale: [0.5, 0.5, 0.5],
-          mass: m1, velocity: [3, 0, 0], color: '#ff6b6b'
+          mass: m1, velocity: [v1init, 0, 0], color: '#ff6b6b'
         });
         objects.push({
           id: 'ball_2', name: '小球B', type: 'sphere',
@@ -606,12 +611,14 @@ export class ParameterExtractorNode extends WorkflowNode {
 
       case 'angled_projectile': {
         // 斜抛运动 — 小球以一定角度抛出
-        const angleDeg = numbers[0] || 45;
-        const v0 = numbers[1] || 15;
+        const angleM = text.match(/(\d+(?:\.\d+)?)\s*(?:度|°)/);
+        const velM = text.match(/(\d+(?:\.\d+)?)\s*m\/s/);
+        const angleDeg = angleM ? Number(angleM[1]) : 45;
+        const v0 = velM ? Number(velM[1]) : 15;
         objects.push({
           id: 'ball_1', name: '小球', type: 'sphere',
           position: [0, 0.5, 0], rotation: [0, 0, 0], scale: [0.4, 0.4, 0.4],
-          mass: numbers[2] || 1, velocity: [v0 * Math.cos(angleDeg * Math.PI / 180), v0 * Math.sin(angleDeg * Math.PI / 180), 0],
+          mass: numbers.find(n => n < 5 && n !== angleDeg && n !== v0) || 1, velocity: [v0 * Math.cos(angleDeg * Math.PI / 180), v0 * Math.sin(angleDeg * Math.PI / 180), 0],
           color: '#feca57'
         });
         objects.push({
@@ -624,8 +631,9 @@ export class ParameterExtractorNode extends WorkflowNode {
 
       case 'atwood': {
         // 阿特伍德机（滑轮系统）— 两个质量通过绳子和滑轮连接
-        const m1 = numbers[0] || 2;
-        const m2 = numbers[1] || 1;
+        const atwoodMassMatches = text.match(/(\d+(?:\.\d+)?)\s*kg/g);
+        const m1 = atwoodMassMatches ? Number(atwoodMassMatches[0].replace(/kg/, '')) : (numbers[0] || 2);
+        const m2 = atwoodMassMatches && atwoodMassMatches.length > 1 ? Number(atwoodMassMatches[1].replace(/kg/, '')) : (numbers[1] || 1);
         objects.push({
           id: 'pulley', name: '滑轮', type: 'cylinder',
           position: [0, 5, 0], rotation: [Math.PI / 2, 0, 0], scale: [0.6, 0.1, 0.6],
@@ -1036,38 +1044,40 @@ export class PhysicsCalculatorNode extends WorkflowNode {
         const ball2 = objects.find(o => o.id === 'ball_2') || objects[1];
         const m1 = ball1.mass || 1;
         const m2 = ball2.mass || 1;
-        let v1 = (ball1.velocity?.[0]) ?? 3;
-        let v2 = (ball2.velocity?.[0]) ?? -2;
+        const v1i = (ball1.velocity?.[0]) ?? 3;
+        const v2i = (ball2.velocity?.[0]) ?? -2;
         const x1_0 = ball1.position[0];
         const x2_0 = ball2.position[0];
         const r1 = (ball1.scale?.[0] || 0.5) / 2;
         const r2 = (ball2.scale?.[0] || 0.5) / 2;
         const collisionDist = r1 + r2;
         // 碰撞后的速度（一维弹性碰撞公式）
-        const v1f = ((m1 - m2) * v1 + 2 * m2 * v2) / (m1 + m2);
-        const v2f = ((m2 - m1) * v2 + 2 * m1 * v1) / (m1 + m2);
-        let collided = false;
+        const v1f = ((m1 - m2) * v1i + 2 * m2 * v2i) / (m1 + m2);
+        const v2f = ((m2 - m1) * v2i + 2 * m1 * v1i) / (m1 + m2);
+        let collisionTime = -1;
+        let p1c = x1_0, p2c = x2_0;
         for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
-          let p1x: number, p2x: number;
-          if (!collided) {
-            p1x = x1_0 + v1 * t;
-            p2x = x2_0 + v2 * t;
+          let p1x: number, p2x: number, cv1: number, cv2: number;
+          if (collisionTime < 0) {
+            p1x = x1_0 + v1i * t;
+            p2x = x2_0 + v2i * t;
+            cv1 = v1i; cv2 = v2i;
             if (Math.abs(p2x - p1x) <= collisionDist) {
-              collided = true;
-              v1 = v1f; v2 = v2f;
+              collisionTime = t;
+              p1c = p1x; p2c = p2x;
             }
           } else {
-            const tc = t - (collided ? t : 0);
-            p1x = x1_0 + v1f * t;
-            p2x = x2_0 + v2f * t;
+            p1x = p1c + v1f * (t - collisionTime);
+            p2x = p2c + v2f * (t - collisionTime);
+            cv1 = v1f; cv2 = v2f;
           }
           const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
-          stepObj[ball1.id] = { position: [p1x!, ball1.position[1], 0], velocity: [collided ? v1f : v1, 0, 0] };
-          stepObj[ball2.id] = { position: [p2x!, ball2.position[1], 0], velocity: [collided ? v2f : v2, 0, 0] };
+          stepObj[ball1.id] = { position: [p1x, ball1.position[1], 0], velocity: [cv1, 0, 0] };
+          stepObj[ball2.id] = { position: [p2x, ball2.position[1], 0], velocity: [cv2, 0, 0] };
           steps.push({ time: t, objects: stepObj });
-          kinetic.push(0.5 * m1 * (collided ? v1f : v1) ** 2 + 0.5 * m2 * (collided ? v2f : v2) ** 2);
+          kinetic.push(0.5 * m1 * cv1 * cv1 + 0.5 * m2 * cv2 * cv2);
           potential.push(0);
-          total.push(0.5 * m1 * (collided ? v1f : v1) ** 2 + 0.5 * m2 * (collided ? v2f : v2) ** 2);
+          total.push(0.5 * m1 * cv1 * cv1 + 0.5 * m2 * cv2 * cv2);
         }
         break;
       }

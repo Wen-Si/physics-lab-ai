@@ -261,8 +261,8 @@ export default function Home() {
       if (ball) ball.position = [0, h, 0];
     } else if (sceneType === 'circular') {
       const ball = objs.find(o => o.id === 'ball_1');
-      const r = num(aiParams.radius, 3);
-      if (ball) ball.position = [r, ball.position[1] || 1, 0];
+      const r = num(aiParams.radius, 0);
+      if (ball && r > 0) ball.position = [r, ball.position[1] || 1, 0];
     } else if (sceneType === 'collision') {
       const ball1 = objs.find(o => o.id === 'ball_1');
       const ball2 = objs.find(o => o.id === 'ball_2');
