@@ -447,9 +447,10 @@ export class ParameterExtractorNode extends WorkflowNode {
       if (/斜抛|斜上抛|angled|仰角/.test(lower)) return 'angled_projectile';
       if (/平抛|抛体|抛物线|水平抛|projectile/.test(lower)) return 'projectile';
       if (/斜面|斜坡|ramp|下滑|倾斜/.test(lower)) return 'ramp';
-      if (/轨道|行星|planet|orbit|引力|万有引力|卫星/.test(lower)) return 'orbital';
+      if (/行星|planet|恒星|卫星|satellite|万有引力/.test(lower)) return 'orbital';
       if (/圆周|circular|匀速圆周|向心/.test(lower)) return 'circular';
       if (/滑轮|pulley|atwood|阿特伍德/.test(lower)) return 'atwood';
+      if (/轨道|orbit/.test(lower)) return 'orbital';
       if (/自由落体|落下|free.?fall|下落|掉落/.test(lower)) return 'freefall';
       return 'freefall';
     }
