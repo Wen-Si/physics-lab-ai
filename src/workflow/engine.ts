@@ -620,7 +620,7 @@ export class ParameterExtractorNode extends WorkflowNode {
         objects.push({
           id: 'ball_2', name: '小球B', type: 'sphere',
           position: [4, 1, 0], rotation: [0, 0, 0], scale: [0.5, 0.5, 0.5],
-          mass: m2, velocity: [-2, 0, 0], color: '#54a0ff'
+          mass: m2, velocity: [text.includes('静止') ? 0 : -2, 0, 0], color: '#54a0ff'
         });
         objects.push({
           id: 'ground', name: '地面', type: 'plane',
@@ -1414,6 +1414,7 @@ export class DescriptionGeneratorNode extends WorkflowNode {
     const obj = parameters.objects.find(o => o.id === 'ball_1' || o.id === 'bob' || o.id === 'block_1' || o.id === 'mass_block' || o.id === 'planet' || o.id === 'mass_1') || parameters.objects[0];
     const lawsText = physicsLaws.map(law => `- ${law.name}：${law.formula}，${law.description}`).join('\n');
     const initPE = calculations.energyAnalysis.potential[0]?.toFixed(2) || '0';
+    const initKE = calculations.energyAnalysis.kinetic[0]?.toFixed(2) || '0';
     const finalKE = Math.max(...calculations.energyAnalysis.kinetic, 0).toFixed(2);
 
     const sceneDescriptions: Record<string, string> = {
@@ -1515,8 +1516,8 @@ ${lawsText}
 ${lawsText}
 
 能量分析：
-- 碰撞前总动能：${initPE} J
-- 碰撞后总动能：${finalKE} J
+- 碰撞前总动能：${initKE} J
+- 碰撞后总动能：${calculations.energyAnalysis.kinetic[calculations.energyAnalysis.kinetic.length - 1]?.toFixed(2) || initKE} J
 - 动能守恒验证：弹性碰撞中动能不损失`,
 
       angled_projectile: `这是一个斜抛运动实验模拟。小球以${obj.velocity ? Math.round(Math.sqrt(obj.velocity[0]**2 + obj.velocity[1]**2)) : 15}m/s的初速度、${obj.velocity ? Math.round(Math.atan2(obj.velocity[1], obj.velocity[0]) * 180 / Math.PI) : 45}°仰角抛出。
