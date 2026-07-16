@@ -24,6 +24,8 @@ export interface ExtractionResult {
   laws: KnowledgeNode[];            // 定律 (objectType: 'law')
   scientists: KnowledgeNode[];      // 科学家 (objectType: 'person')
   processes: KnowledgeNode[];       // 物理过程 (objectType: 'process' / Palantir Action)
+  /** 按重要性排序的 Top-N 核心知识节点ID（最多5个），用于可视化中最高高亮 */
+  topNodeIds: string[];
   summary: string;
   relevantKeywords: string[];
   sceneType?: string;
@@ -130,6 +132,10 @@ export function extractKnowledgeGraph(
     linkTypeDistribution
   };
 
+  // 13. 按重要性排序，选出 Top-5 核心知识节点
+  // 优先级：primaryNodes(场景直接映射) > laws(适用定律) > processes(物理过程) > concepts(关键概念)
+  const topNodeIds = rankTopNodes(sceneType, allRelatedIds, mainGraph);
+
   return {
     graph: mainGraph,
     primaryNodes,
@@ -138,6 +144,7 @@ export function extractKnowledgeGraph(
     laws,
     scientists,
     processes,
+    topNodeIds,
     summary,
     relevantKeywords,
     sceneType,
@@ -259,6 +266,66 @@ export function getNodeImportance(nodeId: string, graph: KnowledgeGraph): number
     }
   });
   return count;
+}
+
+/**
+ * 按重要性排序选出 Top-5 核心知识节点ID
+ * 评分策略：
+ *   - 场景直接映射的 primaryNodes: 基础分 100
+ *   - 适用定律 laws: 基础分 80
+ *   - 物理过程 processNodes: 基础分 60
+ *   - 关键概念 concepts: 基础分 40
+ *   - 其他映射节点: 基础分 20
+ *   在同分层内，按图谱中的边权重（连接度）加分
+ */
+function rankTopNodes(
+  sceneType: string | undefined,
+  allMappedIds: Set<string>,
+  graph: KnowledgeGraph
+): string[] {
+  const MAX_TOP = 5;
+
+  // 从 EXPERIMENT_KNOWLEDGE_MAP 获取分层信息
+  const sceneMap = sceneType ? EXPERIMENT_KNOWLEDGE_MAP[sceneType] : null;
+
+  // 为每个映射节点计算重要性分数
+  const scored: { id: string; score: number }[] = [];
+
+  // 计算每个节点在图谱中的连接权重（度中心性）
+  const edgeWeightMap: Record<string, number> = {};
+  graph.edges.forEach(e => {
+    edgeWeightMap[e.source] = (edgeWeightMap[e.source] || 0) + e.weight;
+    edgeWeightMap[e.target] = (edgeWeightMap[e.target] || 0) + e.weight;
+  });
+
+  allMappedIds.forEach(id => {
+    let baseScore = 20; // 默认基础分
+    let layerBonus = 0;  // 同层内排序用
+
+    if (sceneMap) {
+      if (sceneMap.primaryNodes.includes(id)) {
+        baseScore = 100;
+        layerBonus = sceneMap.primaryNodes.length - sceneMap.primaryNodes.indexOf(id);
+      } else if (sceneMap.laws.includes(id)) {
+        baseScore = 80;
+        layerBonus = sceneMap.laws.length - sceneMap.laws.indexOf(id);
+      } else if (sceneMap.processNodes.includes(id)) {
+        baseScore = 60;
+        layerBonus = sceneMap.processNodes.length - sceneMap.processNodes.indexOf(id);
+      } else if (sceneMap.concepts.includes(id)) {
+        baseScore = 40;
+        layerBonus = sceneMap.concepts.length - sceneMap.concepts.indexOf(id);
+      }
+    }
+
+    const connectivity = edgeWeightMap[id] || 0;
+    const score = baseScore + layerBonus * 2 + connectivity * 5;
+    scored.push({ id, score });
+  });
+
+  // 按分数降序排列，取前5
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, MAX_TOP).map(s => s.id);
 }
 
 // 导出完整知识图谱供外部使用

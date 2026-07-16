@@ -13,6 +13,8 @@ interface GraphVisualizerProps {
   graph: KnowledgeGraph;
   /** 当前实验映射到的知识节点ID集合 — 这些节点高亮显示，其余暗淡 */
   mappedNodeIds?: Set<string>;
+  /** 按重要性排序的 Top-N 核心节点ID（最多5个）— 最高高亮，比普通映射节点更突出 */
+  topNodeIds?: string[];
   width?: number;
   height?: number;
   title?: string;
@@ -191,6 +193,7 @@ function runForceLayout(
 export default function KnowledgeGraphVisualizer({
   graph,
   mappedNodeIds,
+  topNodeIds,
   width = 700,
   height = 500,
   title = '物理知识图谱'
@@ -217,6 +220,9 @@ export default function KnowledgeGraphVisualizer({
   const hasMapping = mappedNodeIds && mappedNodeIds.size > 0;
   const mappedCount = hasMapping ? mappedNodeIds.size : 0;
   const totalCount = graph.nodes.length;
+  // Top-N 核心节点集合（用于快速查找）
+  const topNodeSet = useMemo(() => new Set(topNodeIds || []), [topNodeIds]);
+  const hasTopNodes = topNodeSet.size > 0;
 
   useEffect(() => {
     if (layoutResult) {
@@ -320,6 +326,9 @@ export default function KnowledgeGraphVisualizer({
             {hasMapping && (
               <span style={{ marginLeft: '8px', color: '#00e676' }}>● 映射: {mappedCount}/{totalCount}</span>
             )}
+            {hasTopNodes && (
+              <span style={{ marginLeft: '8px', color: '#ffd54f' }}>★ 核心: {topNodeSet.size}</span>
+            )}
           </div>
         </div>
         <button onClick={handleReset} style={{ padding: '6px 12px', border: '1px solid #2a3a5a', borderRadius: '6px', background: 'rgba(74, 144, 217, 0.1)', color: '#a0b0c0', fontSize: '12px', cursor: 'pointer' }}>
@@ -340,7 +349,8 @@ export default function KnowledgeGraphVisualizer({
         <div style={{ marginLeft: 'auto', fontSize: '11px', color: '#708090' }}>
           {hasMapping ? (
             <>
-              <span style={{ color: '#00e676' }}>● 高亮=已映射</span>
+              {hasTopNodes && <span style={{ color: '#ffd54f' }}>★ 核心 Top-{topNodeSet.size}</span>}
+              <span style={{ marginLeft: '6px', color: '#00e676' }}>● 高亮=已映射</span>
               <span style={{ marginLeft: '6px', color: '#505060' }}>● 暗淡=未映射</span>
               <span style={{ marginLeft: '6px' }}>· 拖动 · 悬浮 · 点击 · 滚轮</span>
             </>
@@ -360,6 +370,11 @@ export default function KnowledgeGraphVisualizer({
                 <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
               </filter>
             ))}
+            {/* Top-N 核心节点增强发光滤镜 */}
+            <filter id="glow-top" x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur stdDeviation="6" result="coloredBlur" />
+              <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
             <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
               <polygon points="0 0, 10 3.5, 0 7" fill="#4a90d9" opacity="0.5" />
             </marker>
@@ -398,12 +413,13 @@ export default function KnowledgeGraphVisualizer({
               const isHovered = hoveredNode?.id === node.id;
               const nodeColor = getNodeColor(node);
               const ot = (node as any).objectType || node.type;
-              // 映射状态
+              // 映射状态：三层 — 核心Top-N / 普通映射 / 未映射
               const isMapped = !hasMapping || mappedNodeIds.has(node.id);
-              // 缩放：映射节点正常大小，未映射节点缩小
+              const isTopNode = hasTopNodes && topNodeSet.has(node.id);
+              // 缩放：核心节点最大，映射节点正常，未映射节点缩小
               const baseScale = isSelected ? 1.3 : isHovered ? 1.15 : 1;
-              const scale = isMapped ? baseScale : baseScale * 0.7;
-              // 透明度：映射节点全亮，未映射节点暗淡
+              const scale = isTopNode ? baseScale * 1.25 : isMapped ? baseScale : baseScale * 0.7;
+              // 透明度：三层
               const isConnected = selectedNode && edgePositions.some(
                 e => (e.source === node.id && e.target === selectedNode.id) || (e.target === node.id && e.source === selectedNode.id)
               );
@@ -430,20 +446,31 @@ export default function KnowledgeGraphVisualizer({
                   {(isSelected || isHovered) && (
                     <circle r={node.radius * 1.8} fill="none" stroke={nodeColor} strokeWidth="1.5" opacity="0.3" />
                   )}
-                  {/* 映射节点外圈光环 */}
-                  {isMapped && hasMapping && !isSelected && !isHovered && (
+                  {/* Top-N 核心节点外圈脉冲光环 */}
+                  {isTopNode && !isSelected && !isHovered && (
+                    <>
+                      <circle r={node.radius * 1.6} fill="none" stroke="#ffd54f" strokeWidth="2" opacity="0.6" />
+                      <circle r={node.radius * 2.0} fill="none" stroke="#ffd54f" strokeWidth="1" opacity="0.3" />
+                    </>
+                  )}
+                  {/* 普通映射节点外圈光环 */}
+                  {isMapped && !isTopNode && hasMapping && !isSelected && !isHovered && (
                     <circle r={node.radius * 1.35} fill="none" stroke={nodeColor} strokeWidth="1" opacity="0.35" />
                   )}
-                  <circle r={node.radius * scale} fill={nodeColor} stroke={isSelected ? '#fff' : '#1a1a2e'}
-                    strokeWidth={isSelected ? 3 : 2}
-                    filter={isMapped ? `url(#glow-${ot})` : 'none'}
-                    opacity={isMapped ? 0.9 : 0.5}
+                  <circle r={node.radius * scale} fill={nodeColor} stroke={isSelected ? '#fff' : isTopNode ? '#ffd54f' : '#1a1a2e'}
+                    strokeWidth={isSelected ? 3 : isTopNode ? 2.5 : 2}
+                    filter={isTopNode ? 'url(#glow-top)' : isMapped ? `url(#glow-${ot})` : 'none'}
+                    opacity={isTopNode ? 1 : isMapped ? 0.9 : 0.5}
                     style={{ transition: 'all 0.2s ease' }} />
                   <circle r={node.radius * scale * 0.6} fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
-                  <text y={4} textAnchor="middle" fontSize={ot === 'entity' || ot === 'concept' ? '11px' : '10px'}
-                    fill={isMapped ? '#1a1a2e' : '#3a3a4e'} fontWeight="bold" style={{ pointerEvents: 'none' }}>
+                  <text y={4} textAnchor="middle" fontSize={isTopNode ? '12px' : ot === 'entity' || ot === 'concept' ? '11px' : '10px'}
+                    fill={isTopNode ? '#1a1a2e' : isMapped ? '#1a1a2e' : '#3a3a4e'} fontWeight="bold" style={{ pointerEvents: 'none' }}>
                     {node.name.length > 6 ? node.name.substring(0, 6) + '...' : node.name}
                   </text>
+                  {/* Top-N 核心节点星标 */}
+                  {isTopNode && !isSelected && !isHovered && (
+                    <text y={-node.radius * scale - 6} textAnchor="middle" fontSize="10px" fill="#ffd54f" style={{ pointerEvents: 'none' }}>★</text>
+                  )}
                 </g>
               );
             })}
