@@ -33,255 +33,346 @@ function ThreeRenderer({ scene, animations, currentTime, isPlaying }: PhysicsRen
   const cameraRef = useRef<any>(null);
   const meshesRef = useRef<Map<string, any>>(new Map());
   const linesRef = useRef<Map<string, any>>(new Map());
-  const frameRef = useRef<number>(0);
   const orbitRef = useRef({ isDragging: false, lastX: 0, lastY: 0, theta: 0.5, phi: 1.2, distance: 20, targetX: 0, targetY: 3, targetZ: 0 });
   const trailRef = useRef<any[]>([]);
 
+  // 用 ref 存储最新的 props，避免在动画循环中产生闭包陷阱
+  const sceneRef = useRef(scene);
+  const animationsRef = useRef(animations);
+  const currentTimeRef = useRef(currentTime);
+  const isPlayingRef = useRef(isPlaying);
+
+  // 渲染器是否已初始化完成
+  const [rendererReady, setRendererReady] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
+
+  // 同步最新 props 到 ref
+  useEffect(() => {
+    sceneRef.current = scene;
+  }, [scene]);
+
+  useEffect(() => {
+    animationsRef.current = animations;
+  }, [animations]);
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  // ====== 第一个 useEffect：初始化 Three.js 渲染器（仅运行一次） ======
   useEffect(() => {
     let disposed = false;
+    let resizeObserver: ResizeObserver | null = null;
+    let renderer: any = null;
+    let threeScene: any = null;
+    let camera: any = null;
+    let animateId = 0;
 
-    (async () => {
-      const THREE = await import('three');
-      if (disposed) return;
-
-      const container = containerRef.current;
-      const canvas = canvasRef.current;
-      if (!container || !canvas) return;
-
-      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.2;
-      rendererRef.current = renderer;
-
-      const threeScene = new THREE.Scene();
-      threeScene.background = new THREE.Color('#0a0a1a');
-      threeScene.fog = new THREE.Fog('#0a0a1a', 15, 50);
-      threeSceneRef.current = threeScene;
-
-      const camera = new THREE.PerspectiveCamera(50, 2, 0.5, 100);
-      camera.position.set(12, 8, 16);
-      camera.lookAt(0, 3, 0);
-      cameraRef.current = camera;
-
-      // 灯光
-      threeScene.add(new THREE.AmbientLight('#4a6090', 0.6));
-      const sunLight = new THREE.DirectionalLight('#ffffff', 1.5);
-      sunLight.position.set(15, 20, 10);
-      sunLight.castShadow = true;
-      sunLight.shadow.mapSize.width = 2048;
-      sunLight.shadow.mapSize.height = 2048;
-      sunLight.shadow.camera.near = 0.5;
-      sunLight.shadow.camera.far = 60;
-      sunLight.shadow.camera.left = -20;
-      sunLight.shadow.camera.right = 20;
-      sunLight.shadow.camera.top = 20;
-      sunLight.shadow.camera.bottom = -20;
-      sunLight.shadow.bias = -0.0001;
-      threeScene.add(sunLight);
-      const rimLight = new THREE.DirectionalLight('#6ab0ff', 0.6);
-      rimLight.position.set(-8, 5, -8);
-      threeScene.add(rimLight);
-      const bottomLight = new THREE.PointLight('#4a6090', 0.4, 30);
-      bottomLight.position.set(0, -2, 0);
-      threeScene.add(bottomLight);
-      threeScene.add(new THREE.HemisphereLight('#6ab0ff', '#1a2a3a', 0.4));
-
-      // 地面
-      const groundGeo = new THREE.PlaneGeometry(40, 40);
-      const groundMat = new THREE.MeshStandardMaterial({ color: '#1a2a3a', roughness: 0.7, metalness: 0.3 });
-      const ground = new THREE.Mesh(groundGeo, groundMat);
-      ground.rotation.x = -Math.PI / 2;
-      ground.position.y = 0;
-      ground.receiveShadow = true;
-      threeScene.add(ground);
-
-      // 网格
-      const gridHelper = new THREE.PolarGridHelper(20, 40, 30, 64, '#4a90d9', '#3a5a7a');
-      gridHelper.position.y = 0.01;
-      threeScene.add(gridHelper);
-
-      // 背景星空
-      const starsGeo = new THREE.BufferGeometry();
-      const starsCount = 500;
-      const starsPositions = new Float32Array(starsCount * 3);
-      for (let i = 0; i < starsCount; i++) {
-        starsPositions[i * 3] = (Math.random() - 0.5) * 40;
-        starsPositions[i * 3 + 1] = Math.random() * 20 - 2;
-        starsPositions[i * 3 + 2] = (Math.random() - 0.5) * 40;
-      }
-      starsGeo.setAttribute('position', new THREE.BufferAttribute(starsPositions, 3));
-      const starsMat = new THREE.PointsMaterial({ color: '#4a90d9', size: 0.08, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false });
-      const stars = new THREE.Points(starsGeo, starsMat);
-      threeScene.add(stars);
-
-      // 渲染循环
-      const animate = () => {
+    const init = async () => {
+      try {
+        const THREE = await import('three');
         if (disposed) return;
-        frameRef.current = requestAnimationFrame(animate);
-        const o = orbitRef.current;
-        if (!o.isDragging) o.theta += 0.002;
-        const camX = o.targetX + o.distance * Math.sin(o.phi) * Math.cos(o.theta);
-        const camY = o.targetY + o.distance * Math.cos(o.phi);
-        const camZ = o.targetZ + o.distance * Math.sin(o.phi) * Math.sin(o.theta);
-        camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.05);
-        camera.lookAt(o.targetX, o.targetY, o.targetZ);
-        stars.rotation.y += 0.0003;
-        renderer.render(threeScene, camera);
-      };
-      frameRef.current = requestAnimationFrame(animate);
 
-      // 鼠标事件
-      const handleMouseDown = (e: MouseEvent) => {
-        orbitRef.current.isDragging = true;
-        orbitRef.current.lastX = e.clientX;
-        orbitRef.current.lastY = e.clientY;
-      };
-      const handleMouseMove = (e: MouseEvent) => {
-        if (!orbitRef.current.isDragging) return;
-        const dx = e.clientX - orbitRef.current.lastX;
-        const dy = e.clientY - orbitRef.current.lastY;
-        orbitRef.current.theta -= dx * 0.005;
-        orbitRef.current.phi = Math.max(0.2, Math.min(Math.PI / 2 - 0.1, orbitRef.current.phi - dy * 0.005));
-        orbitRef.current.lastX = e.clientX;
-        orbitRef.current.lastY = e.clientY;
-      };
-      const handleMouseUp = () => { orbitRef.current.isDragging = false; };
-      const handleWheel = (e: WheelEvent) => {
-        orbitRef.current.distance = Math.max(5, Math.min(40, orbitRef.current.distance + e.deltaY * 0.02));
-      };
-      const handleResize = () => {
-        if (!container) return;
-        const w = container.clientWidth;
-        const h = container.clientHeight;
-        renderer.setSize(w, h, false);
-        camera.aspect = w / Math.max(h, 1);
-        camera.updateProjectionMatrix();
-      };
+        const container = containerRef.current;
+        const canvas = canvasRef.current;
+        if (!container || !canvas) {
+          setInitError('容器或画布元素未找到');
+          return;
+        }
 
-      container.addEventListener('mousedown', handleMouseDown);
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      container.addEventListener('wheel', handleWheel, { passive: true });
-      window.addEventListener('resize', handleResize);
-      handleResize();
+        renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        rendererRef.current = renderer;
 
-      return () => {
-        disposed = true;
-        cancelAnimationFrame(frameRef.current);
-        container.removeEventListener('mousedown', handleMouseDown);
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-        container.removeEventListener('wheel', handleWheel);
-        window.removeEventListener('resize', handleResize);
-        renderer.dispose();
-        threeScene.traverse((obj: any) => {
-          if (obj.geometry) obj.geometry.dispose();
-          if (obj.material) {
-            if (Array.isArray(obj.material)) obj.material.forEach((m: any) => m.dispose());
-            else obj.material.dispose();
+        threeScene = new THREE.Scene();
+        threeScene.background = new THREE.Color('#0a0a1a');
+        threeScene.fog = new THREE.Fog('#0a0a1a', 15, 50);
+        threeSceneRef.current = threeScene;
+
+        camera = new THREE.PerspectiveCamera(50, 2, 0.5, 100);
+        camera.position.set(12, 8, 16);
+        camera.lookAt(0, 3, 0);
+        cameraRef.current = camera;
+
+        // 灯光
+        threeScene.add(new THREE.AmbientLight('#4a6090', 0.6));
+        const sunLight = new THREE.DirectionalLight('#ffffff', 1.5);
+        sunLight.position.set(15, 20, 10);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 60;
+        sunLight.shadow.camera.left = -20;
+        sunLight.shadow.camera.right = 20;
+        sunLight.shadow.camera.top = 20;
+        sunLight.shadow.camera.bottom = -20;
+        sunLight.shadow.bias = -0.0001;
+        threeScene.add(sunLight);
+        const rimLight = new THREE.DirectionalLight('#6ab0ff', 0.6);
+        rimLight.position.set(-8, 5, -8);
+        threeScene.add(rimLight);
+        const bottomLight = new THREE.PointLight('#4a6090', 0.4, 30);
+        bottomLight.position.set(0, -2, 0);
+        threeScene.add(bottomLight);
+        threeScene.add(new THREE.HemisphereLight('#6ab0ff', '#1a2a3a', 0.4));
+
+        // 地面
+        const groundGeo = new THREE.PlaneGeometry(40, 40);
+        const groundMat = new THREE.MeshStandardMaterial({ color: '#1a2a3a', roughness: 0.7, metalness: 0.3 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = 0;
+        ground.receiveShadow = true;
+        threeScene.add(ground);
+
+        // 网格
+        const gridHelper = new THREE.PolarGridHelper(20, 40, 30, 64, '#4a90d9', '#3a5a7a');
+        gridHelper.position.y = 0.01;
+        threeScene.add(gridHelper);
+
+        // 背景星空
+        const starsGeo = new THREE.BufferGeometry();
+        const starsCount = 500;
+        const starsPositions = new Float32Array(starsCount * 3);
+        for (let i = 0; i < starsCount; i++) {
+          starsPositions[i * 3] = (Math.random() - 0.5) * 40;
+          starsPositions[i * 3 + 1] = Math.random() * 20 - 2;
+          starsPositions[i * 3 + 2] = (Math.random() - 0.5) * 40;
+        }
+        starsGeo.setAttribute('position', new THREE.BufferAttribute(starsPositions, 3));
+        const starsMat = new THREE.PointsMaterial({ color: '#4a90d9', size: 0.08, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false });
+        const stars = new THREE.Points(starsGeo, starsMat);
+        threeScene.add(stars);
+
+        // --- 尺寸调整函数 ---
+        const handleResize = () => {
+          if (!container || disposed) return;
+          const w = container.clientWidth;
+          const h = container.clientHeight;
+          if (w === 0 || h === 0) return; // 容器尚未布局完成，等 ResizeObserver 再处理
+          renderer.setSize(w, h, false);
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+        };
+
+        // --- 渲染循环（合并了原来的第一个和第三个 useEffect 的动画逻辑） ---
+        const animate = () => {
+          if (disposed) return;
+          animateId = requestAnimationFrame(animate);
+
+          // 相机轨道控制
+          const o = orbitRef.current;
+          if (!o.isDragging) o.theta += 0.002;
+          const camX = o.targetX + o.distance * Math.sin(o.phi) * Math.cos(o.theta);
+          const camY = o.targetY + o.distance * Math.cos(o.phi);
+          const camZ = o.targetZ + o.distance * Math.sin(o.phi) * Math.sin(o.theta);
+          camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.05);
+          camera.lookAt(o.targetX, o.targetY, o.targetZ);
+          stars.rotation.y += 0.0003;
+
+          // 动画更新：通过 ref 读取最新值，不依赖 effect 重跑
+          if (isPlayingRef.current) {
+            const currentScene = sceneRef.current;
+            const currentAnimations = animationsRef.current;
+            const t = currentTimeRef.current;
+            const sceneType = (currentScene?.metadata as any)?.sceneType || 'freefall';
+
+            currentAnimations.forEach(anim => {
+              const mesh = meshesRef.current.get(anim.objectId);
+              if (!mesh) return;
+              const keyframes = anim.keyframes;
+              if (keyframes.length === 0) return;
+
+              let currentFrame = keyframes[0];
+              for (let i = 0; i < keyframes.length; i++) {
+                if (keyframes[i].time <= t) currentFrame = keyframes[i];
+                else break;
+              }
+
+              if (currentFrame?.position) {
+                const pos = currentFrame.position;
+                mesh.position.set(pos[0], pos[1], pos[2]);
+
+                // 轨迹
+                if (sceneType === 'projectile' || sceneType === 'freefall' || sceneType === 'angled_projectile') {
+                  trailRef.current.push(pos.slice());
+                  if (trailRef.current.length > 200) trailRef.current.shift();
+                }
+              }
+            });
+
+            // 更新场景特定元素
+            updateSceneElements(THREE, sceneType, currentAnimations, t, meshesRef, linesRef);
           }
-        });
-      };
-    })();
 
-    return () => { disposed = true; };
+          renderer.render(threeScene, camera);
+        };
+        animateId = requestAnimationFrame(animate);
+
+        // --- 鼠标事件 ---
+        const handleMouseDown = (e: MouseEvent) => {
+          orbitRef.current.isDragging = true;
+          orbitRef.current.lastX = e.clientX;
+          orbitRef.current.lastY = e.clientY;
+        };
+        const handleMouseMove = (e: MouseEvent) => {
+          if (!orbitRef.current.isDragging) return;
+          const dx = e.clientX - orbitRef.current.lastX;
+          const dy = e.clientY - orbitRef.current.lastY;
+          orbitRef.current.theta -= dx * 0.005;
+          orbitRef.current.phi = Math.max(0.2, Math.min(Math.PI / 2 - 0.1, orbitRef.current.phi - dy * 0.005));
+          orbitRef.current.lastX = e.clientX;
+          orbitRef.current.lastY = e.clientY;
+        };
+        const handleMouseUp = () => { orbitRef.current.isDragging = false; };
+        const handleWheel = (e: WheelEvent) => {
+          orbitRef.current.distance = Math.max(5, Math.min(40, orbitRef.current.distance + e.deltaY * 0.02));
+        };
+
+        container.addEventListener('mousedown', handleMouseDown);
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        container.addEventListener('wheel', handleWheel, { passive: true });
+        window.addEventListener('resize', handleResize);
+
+        // --- ResizeObserver：容器尺寸变化时自动调整画布 ---
+        if (typeof ResizeObserver !== 'undefined') {
+          resizeObserver = new ResizeObserver(() => {
+            handleResize();
+          });
+          resizeObserver.observe(container);
+        }
+
+        // 初始调整
+        handleResize();
+        // 延迟再调一次，确保布局完全稳定
+        setTimeout(handleResize, 100);
+
+        // 标记渲染器已就绪 — 这会触发第二个 useEffect 重新运行
+        setRendererReady(true);
+
+        // 保存清理函数引用
+        cleanupRef.current = () => {
+          disposed = true;
+          cancelAnimationFrame(animateId);
+          container.removeEventListener('mousedown', handleMouseDown);
+          window.removeEventListener('mousemove', handleMouseMove);
+          window.removeEventListener('mouseup', handleMouseUp);
+          container.removeEventListener('wheel', handleWheel);
+          window.removeEventListener('resize', handleResize);
+          if (resizeObserver) {
+            resizeObserver.disconnect();
+            resizeObserver = null;
+          }
+          if (renderer) {
+            renderer.dispose();
+          }
+          if (threeScene) {
+            threeScene.traverse((obj: any) => {
+              if (obj.geometry) obj.geometry.dispose();
+              if (obj.material) {
+                if (Array.isArray(obj.material)) obj.material.forEach((m: any) => m.dispose());
+                else obj.material.dispose();
+              }
+            });
+          }
+        };
+      } catch (err) {
+        console.error('Three.js 初始化失败:', err);
+        setInitError(String(err));
+      }
+    };
+
+    // 用于保存清理函数
+    const cleanupRef = { current: null as null | (() => void) };
+    init();
+
+    // React cleanup：调用 init 中保存的清理函数
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(animateId);
+      if (cleanupRef.current) {
+        cleanupRef.current();
+      }
+    };
   }, []);
 
-  // 更新场景对象
+  // ====== 第二个 useEffect：当 scene 或 rendererReady 变化时更新场景对象 ======
   useEffect(() => {
+    if (!rendererReady) return; // 等渲染器初始化完成
+
+    const threeScene = threeSceneRef.current;
+    if (!threeScene) return;
+
     (async () => {
       const THREE = await import('three');
-      const threeScene = threeSceneRef.current;
-      if (!threeScene) return;
+      const sceneObj = threeSceneRef.current;
+      if (!sceneObj) return;
 
       // 清除旧网格和线条
-      meshesRef.current.forEach((mesh) => { threeScene.remove(mesh); if (mesh.geometry) mesh.geometry.dispose(); if (mesh.material) mesh.material.dispose(); });
+      meshesRef.current.forEach((mesh) => { sceneObj.remove(mesh); if (mesh.geometry) mesh.geometry.dispose(); if (mesh.material) mesh.material.dispose(); });
       meshesRef.current.clear();
-      linesRef.current.forEach((line) => { threeScene.remove(line); if (line.geometry) line.geometry.dispose(); if (line.material) line.material.dispose(); });
+      linesRef.current.forEach((line) => { sceneObj.remove(line); if (line.geometry) line.geometry.dispose(); if (line.material) line.material.dispose(); });
       linesRef.current.clear();
       trailRef.current = [];
 
-      const sceneType = (scene?.metadata as any)?.sceneType || 'default';
-      const objects = scene?.objects || [];
+      const currentScene = sceneRef.current;
+      const sceneType = (currentScene?.metadata as any)?.sceneType || 'default';
+      const objects = currentScene?.objects || [];
 
       if (objects.length === 0) {
         const demoObj = createDemoObjects(THREE);
-        demoObj.forEach(m => { threeScene.add(m); meshesRef.current.set(m.userData.id, m); });
+        demoObj.forEach(m => { sceneObj.add(m); meshesRef.current.set(m.userData.id, m); });
       } else {
         objects.forEach(obj => {
           const mesh = createObjectMesh(THREE, obj);
-          threeScene.add(mesh);
+          sceneObj.add(mesh);
           meshesRef.current.set(obj.id, mesh);
         });
 
         // 场景特定元素
-        buildSceneSpecificElements(THREE, threeScene, sceneType, objects, linesRef);
+        buildSceneSpecificElements(THREE, sceneObj, sceneType, objects, linesRef);
       }
 
       // 相机位置
-      if (scene?.camera) {
+      if (currentScene?.camera) {
         const o = orbitRef.current;
-        o.targetX = scene.camera.target[0];
-        o.targetY = scene.camera.target[1];
-        o.targetZ = scene.camera.target[2];
-        const cp = scene.camera.position;
+        o.targetX = currentScene.camera.target[0];
+        o.targetY = currentScene.camera.target[1];
+        o.targetZ = currentScene.camera.target[2];
+        const cp = currentScene.camera.position;
         o.distance = Math.sqrt(cp[0] * cp[0] + cp[1] * cp[1] + cp[2] * cp[2]);
         o.phi = Math.acos(cp[1] / o.distance);
         o.theta = Math.atan2(cp[2], cp[0]);
       }
     })();
-  }, [scene]);
+  }, [scene, rendererReady]);
 
-  // 动画更新
-  useEffect(() => {
-    if (!isPlaying) return;
-    let disposed = false;
-
-    const run = async () => {
-      const THREE = await import('three');
-      if (disposed) return;
-
-      const raf = () => {
-        if (disposed) return;
-        requestAnimationFrame(raf);
-        const sceneType = (scene?.metadata as any)?.sceneType || 'freefall';
-
-        animations.forEach(anim => {
-          const mesh = meshesRef.current.get(anim.objectId);
-          if (!mesh) return;
-          const keyframes = anim.keyframes;
-          if (keyframes.length === 0) return;
-
-          let currentFrame = keyframes[0];
-          for (let i = 0; i < keyframes.length; i++) {
-            if (keyframes[i].time <= currentTime) currentFrame = keyframes[i];
-            else break;
-          }
-
-          if (currentFrame?.position) {
-            const pos = currentFrame.position;
-            mesh.position.set(pos[0], pos[1], pos[2]);
-
-            // 轨迹
-            if (sceneType === 'projectile' || sceneType === 'freefall') {
-              trailRef.current.push(pos.slice());
-              if (trailRef.current.length > 200) trailRef.current.shift();
-            }
-          }
-        });
-
-        // 更新场景特定元素
-        updateSceneElements(THREE, sceneType, animations, currentTime, meshesRef, linesRef);
-      };
-      raf();
-    };
-    run();
-
-    return () => { disposed = true; };
-  }, [isPlaying, currentTime, animations, scene]);
+  // ====== 渲染 JSX ======
+  if (initError) {
+    return (
+      <div style={{
+        width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexDirection: 'column', gap: '12px',
+        background: 'linear-gradient(180deg, #0a0a1a 0%, #1a1a3e 50%, #0f0f2e 100%)',
+        color: '#ff6b6b', textAlign: 'center', padding: '40px'
+      }}>
+        <div style={{ fontSize: '48px' }}>⚠️</div>
+        <h3 style={{ fontSize: '18px', margin: 0 }}>3D 渲染初始化失败</h3>
+        <p style={{ fontSize: '13px', color: '#a0b0c0', maxWidth: '400px' }}>{initError}</p>
+        <p style={{ fontSize: '12px', color: '#708090' }}>请刷新页面重试，或检查浏览器 WebGL 支持</p>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
@@ -476,7 +567,9 @@ function FallbackView({ scene }: { scene: ExperimentScene | null }) {
   const sceneType = scene ? ((scene.metadata as any)?.sceneType || 'freefall') : null;
   const sceneTypeNames: Record<string, string> = {
     freefall: '自由落体', pendulum: '单摆运动', spring: '弹簧振子',
-    projectile: '平抛运动', ramp: '斜面下滑'
+    projectile: '平抛运动', ramp: '斜面下滑',
+    circular: '圆周运动', collision: '弹性碰撞',
+    angled_projectile: '斜抛运动', atwood: '滑轮系统', orbital: '行星轨道'
   };
 
   return (
