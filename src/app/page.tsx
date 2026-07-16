@@ -250,9 +250,17 @@ export default function Home() {
     } else if (sceneType === 'pendulum') {
       const bob = objs.find(o => o.id === 'bob');
       const pivot = objs.find(o => o.id === 'pivot');
+      const stringLine = objs.find(o => o.id === 'string_line');
       const lengthVal = num(aiParams.length ?? aiParams.pendulumLength, 1);
-      if (pivot) pivot.position = [0, lengthVal + 1, 0];
-      if (bob) bob.position = [num(aiParams.amplitude ?? aiParams.initialOffset, lengthVal * 0.5), 1, 0];
+      const angleDeg = num(aiParams.angle ?? aiParams.initialAngle, 30);
+      const angleRad = angleDeg * Math.PI / 180;
+      const pMass = num(aiParams.mass, 1);
+      const pivotYVal = lengthVal + 1;
+      const bobXVal = lengthVal * Math.sin(angleRad);
+      const bobYVal = pivotYVal - lengthVal * Math.cos(angleRad);
+      if (pivot) pivot.position = [0, pivotYVal, 0];
+      if (bob) { bob.position = [bobXVal, bobYVal, 0]; bob.mass = pMass; }
+      if (stringLine) { stringLine.position = [bobXVal / 2, (pivotYVal + bobYVal) / 2, 0]; stringLine.scale = [0.03, lengthVal, 0.03]; }
     } else if (sceneType === 'spring') {
       const block = objs.find(o => o.id === 'mass_block');
       const amp = num(aiParams.amplitude ?? aiParams.initialOffset, 0.2);

@@ -484,23 +484,35 @@ export class ParameterExtractorNode extends WorkflowNode {
         });
         break;
 
-      case 'pendulum':
+      case 'pendulum': {
+        // 从自然语言中精确提取摆长、角度、质量
+        const lengthMatch = text.match(/摆长\s*(\d+(?:\.\d+)?)\s*[米m]/i) || text.match(/length\s*(\d+(?:\.\d+)?)/i);
+        const angleMatch = text.match(/角度\s*(\d+(?:\.\d+)?)\s*度/) || text.match(/angle\s*(\d+(?:\.\d+)?)/i);
+        const massMatch = text.match(/质量\s*(\d+(?:\.\d+)?)\s*kg/i) || text.match(/mass\s*(\d+(?:\.\d+)?)/i);
+        const pendulumLength = lengthMatch ? parseFloat(lengthMatch[1]) : (numbers[0] || 1);
+        const initialAngleDeg = angleMatch ? parseFloat(angleMatch[1]) : 30;
+        const initialAngleRad = initialAngleDeg * Math.PI / 180;
+        const pendulumMass = massMatch ? parseFloat(massMatch[1]) : 1;
+        const pivotY = pendulumLength + 1;
+        const bobX = pendulumLength * Math.sin(initialAngleRad);
+        const bobY = pivotY - pendulumLength * Math.cos(initialAngleRad);
         objects.push({
           id: 'pivot', name: '悬挂点', type: 'sphere',
-          position: [0, 3, 0], rotation: [0, 0, 0], scale: [0.2, 0.2, 0.2],
+          position: [0, pivotY, 0], rotation: [0, 0, 0], scale: [0.2, 0.2, 0.2],
           color: '#ffd700'
         });
         objects.push({
           id: 'bob', name: '摆球', type: 'sphere',
-          position: [numbers[0] || 1, 1, 0], rotation: [0, 0, 0], scale: [0.4, 0.4, 0.4],
-          mass: numbers[1] || 0.5, color: '#4ecdc4'
+          position: [bobX, bobY, 0], rotation: [0, 0, 0], scale: [0.4, 0.4, 0.4],
+          mass: pendulumMass, color: '#4ecdc4'
         });
         objects.push({
           id: 'string_line', name: '摆线', type: 'cylinder',
-          position: [0, 2, 0], rotation: [0, 0, 0], scale: [0.03, 2, 0.03],
+          position: [bobX / 2, (pivotY + bobY) / 2, 0], rotation: [0, 0, 0], scale: [0.03, pendulumLength, 0.03],
           color: '#a0b0c0'
         });
         break;
+      }
 
       case 'spring':
         objects.push({
@@ -940,11 +952,16 @@ export class PhysicsCalculatorNode extends WorkflowNode {
         const bob = objects.find(o => o.id === 'bob') || objects[1];
         const pivot = objects.find(o => o.id === 'pivot') || objects[0];
         const pivotY = pivot.position[1];
-        const length = Math.abs(pivotY - bob.position[1]);
+        // 使用实际距离计算摆长（而非仅 Y 方向差值），确保初始角度场景下长度正确
+        const length = Math.sqrt(
+          Math.pow(bob.position[0] - pivot.position[0], 2) +
+          Math.pow(bob.position[1] - pivot.position[1], 2)
+        );
         const omega = Math.sqrt(g / length);
-        const theta0 = Math.asin(Math.abs(bob.position[0] - pivot.position[0]) / length) || 0.5;
+        const theta0 = Math.asin(Math.min(1, Math.abs(bob.position[0] - pivot.position[0]) / length)) || 0.5;
         const mass = bob.mass || 1;
-        
+        const lowestY = pivotY - length;  // 摆球最低点 Y 坐标
+
         for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
           const theta = theta0 * Math.cos(omega * t);
           const bx = pivot.position[0] + length * Math.sin(theta);
@@ -953,7 +970,8 @@ export class PhysicsCalculatorNode extends WorkflowNode {
           stepObj[bob.id] = { position: [bx, by, 0], velocity: [0, 0, 0] };
           steps.push({ time: t, objects: stepObj });
           const v = length * omega * theta0 * Math.abs(Math.sin(omega * t));
-          const h = Math.max(0, by);
+          // 势能以摆球最低点为参考零点，确保 PE_max = KE_max
+          const h = Math.max(0, by - lowestY);
           kinetic.push(0.5 * mass * v * v);
           potential.push(mass * g * h);
           total.push(0.5 * mass * v * v + mass * g * h);
