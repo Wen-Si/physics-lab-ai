@@ -11,6 +11,8 @@ import { KnowledgeGraph, KnowledgeNode, KnowledgeEdge } from '../knowledge/physi
 
 interface GraphVisualizerProps {
   graph: KnowledgeGraph;
+  /** 当前实验映射到的知识节点ID集合 — 这些节点高亮显示，其余暗淡 */
+  mappedNodeIds?: Set<string>;
   width?: number;
   height?: number;
   title?: string;
@@ -188,6 +190,7 @@ function runForceLayout(
 
 export default function KnowledgeGraphVisualizer({
   graph,
+  mappedNodeIds,
   width = 700,
   height = 500,
   title = '物理知识图谱'
@@ -209,6 +212,11 @@ export default function KnowledgeGraphVisualizer({
 
   const [nodePositions, setNodePositions] = useState<NodePosition[]>([]);
   const [edgePositions, setEdgePositions] = useState<EdgePosition[]>([]);
+
+  // 是否有映射信息 — 有则启用高亮/暗淡模式
+  const hasMapping = mappedNodeIds && mappedNodeIds.size > 0;
+  const mappedCount = hasMapping ? mappedNodeIds.size : 0;
+  const totalCount = graph.nodes.length;
 
   useEffect(() => {
     if (layoutResult) {
@@ -309,6 +317,9 @@ export default function KnowledgeGraphVisualizer({
           <h3 style={{ fontSize: '16px', color: '#6ab0ff', margin: 0 }}>🧠 {title}</h3>
           <div style={{ fontSize: '11px', color: '#708090', marginTop: '4px' }}>
             {graph.nodes.length} 个节点 · {graph.edges.length} 条关系 · 缩放: {(zoom * 100).toFixed(0)}%
+            {hasMapping && (
+              <span style={{ marginLeft: '8px', color: '#00e676' }}>● 映射: {mappedCount}/{totalCount}</span>
+            )}
           </div>
         </div>
         <button onClick={handleReset} style={{ padding: '6px 12px', border: '1px solid #2a3a5a', borderRadius: '6px', background: 'rgba(74, 144, 217, 0.1)', color: '#a0b0c0', fontSize: '12px', cursor: 'pointer' }}>
@@ -326,7 +337,17 @@ export default function KnowledgeGraphVisualizer({
             </div>
           )
         ))}
-        <div style={{ marginLeft: 'auto', fontSize: '11px', color: '#708090' }}>💡 拖动节点 · 悬浮查看概要 · 点击展开详情 · 滚轮缩放</div>
+        <div style={{ marginLeft: 'auto', fontSize: '11px', color: '#708090' }}>
+          {hasMapping ? (
+            <>
+              <span style={{ color: '#00e676' }}>● 高亮=已映射</span>
+              <span style={{ marginLeft: '6px', color: '#505060' }}>● 暗淡=未映射</span>
+              <span style={{ marginLeft: '6px' }}>· 拖动 · 悬浮 · 点击 · 滚轮</span>
+            </>
+          ) : (
+            <span>💡 拖动节点 · 悬浮查看概要 · 点击展开详情 · 滚轮缩放</span>
+          )}
+        </div>
       </div>
 
       {/* SVG画布 */}
@@ -349,12 +370,23 @@ export default function KnowledgeGraphVisualizer({
             {edgePositions.map((edge, index) => {
               const isHighlighted = selectedNode && (edge.source === selectedNode.id || edge.target === selectedNode.id);
               const isConnected = hoveredNode && (edge.source === hoveredNode.id || edge.target === hoveredNode.id);
+              // 映射高亮：两端都是映射节点则为高亮边
+              const bothMapped = hasMapping && mappedNodeIds.has(edge.source) && mappedNodeIds.has(edge.target);
+              const eitherMapped = hasMapping && (mappedNodeIds.has(edge.source) || mappedNodeIds.has(edge.target));
+              // 基础透明度
+              let baseOpacity = 0.35;
+              if (hasMapping) {
+                baseOpacity = bothMapped ? 0.7 : eitherMapped ? 0.2 : 0.08;
+              }
+              // 选中/悬浮覆盖
+              const finalOpacity = selectedNode && !isHighlighted ? 0.1 : isConnected ? 0.8 : baseOpacity;
+              const strokeColor = bothMapped ? '#6ab0ff' : isConnected ? '#6ab0ff' : '#3a4a6a';
               return (
                 <line key={`edge-${index}`} x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2}
-                  stroke={isConnected ? '#6ab0ff' : '#3a4a6a'}
-                  strokeWidth={isHighlighted ? 2.5 : isConnected ? 2 : 1.2 * edge.weight}
+                  stroke={strokeColor}
+                  strokeWidth={isHighlighted ? 2.5 : isConnected ? 2 : bothMapped ? 1.8 : 1.2 * edge.weight}
                   strokeDasharray={edge.weight < 0.5 ? '4,2' : 'none'}
-                  opacity={selectedNode && !isHighlighted ? 0.15 : isConnected ? 0.8 : 0.35}
+                  opacity={finalOpacity}
                   markerEnd="url(#arrowhead)"
                   style={{ transition: 'all 0.3s ease' }} />
               );
@@ -365,12 +397,22 @@ export default function KnowledgeGraphVisualizer({
               const isSelected = selectedNode?.id === node.id;
               const isHovered = hoveredNode?.id === node.id;
               const nodeColor = getNodeColor(node);
-              const scale = isSelected ? 1.3 : isHovered ? 1.15 : 1;
+              const ot = (node as any).objectType || node.type;
+              // 映射状态
+              const isMapped = !hasMapping || mappedNodeIds.has(node.id);
+              // 缩放：映射节点正常大小，未映射节点缩小
+              const baseScale = isSelected ? 1.3 : isHovered ? 1.15 : 1;
+              const scale = isMapped ? baseScale : baseScale * 0.7;
+              // 透明度：映射节点全亮，未映射节点暗淡
               const isConnected = selectedNode && edgePositions.some(
                 e => (e.source === node.id && e.target === selectedNode.id) || (e.target === node.id && e.source === selectedNode.id)
               );
-              const opacity = selectedNode && !isSelected && !isConnected ? 0.3 : 1;
-              const ot = (node as any).objectType || node.type;
+              let opacity = 1;
+              if (selectedNode && !isSelected && !isConnected) {
+                opacity = 0.3;
+              } else if (hasMapping && !isMapped) {
+                opacity = 0.2; // 未映射节点暗淡
+              }
 
               return (
                 <g key={node.id} transform={`translate(${node.x}, ${node.y})`}
@@ -388,12 +430,18 @@ export default function KnowledgeGraphVisualizer({
                   {(isSelected || isHovered) && (
                     <circle r={node.radius * 1.8} fill="none" stroke={nodeColor} strokeWidth="1.5" opacity="0.3" />
                   )}
+                  {/* 映射节点外圈光环 */}
+                  {isMapped && hasMapping && !isSelected && !isHovered && (
+                    <circle r={node.radius * 1.35} fill="none" stroke={nodeColor} strokeWidth="1" opacity="0.35" />
+                  )}
                   <circle r={node.radius * scale} fill={nodeColor} stroke={isSelected ? '#fff' : '#1a1a2e'}
-                    strokeWidth={isSelected ? 3 : 2} filter={`url(#glow-${ot})`} opacity="0.9"
+                    strokeWidth={isSelected ? 3 : 2}
+                    filter={isMapped ? `url(#glow-${ot})` : 'none'}
+                    opacity={isMapped ? 0.9 : 0.5}
                     style={{ transition: 'all 0.2s ease' }} />
                   <circle r={node.radius * scale * 0.6} fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
                   <text y={4} textAnchor="middle" fontSize={ot === 'entity' || ot === 'concept' ? '11px' : '10px'}
-                    fill="#1a1a2e" fontWeight="bold" style={{ pointerEvents: 'none' }}>
+                    fill={isMapped ? '#1a1a2e' : '#3a3a4e'} fontWeight="bold" style={{ pointerEvents: 'none' }}>
                     {node.name.length > 6 ? node.name.substring(0, 6) + '...' : node.name}
                   </text>
                 </g>

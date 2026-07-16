@@ -9,7 +9,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import PhysicsRenderer from '../components/PhysicsRenderer';
 import KnowledgeGraphVisualizer from '../components/KnowledgeGraphVisualizer';
 import { workflowEngine, ExperimentOutput, WorkflowState } from '../workflow/engine';
-import { extractKnowledgeGraph, ExtractionResult } from '../knowledge/extraction-engine';
+import { extractKnowledgeGraph, ExtractionResult, FULL_KNOWLEDGE_GRAPH } from '../knowledge/extraction-engine';
 import { callZhipuAI, parseAIResponse, enhancedPhysicsUnderstanding } from '../api/zhipu';
 
 // 预设实验模板 — 10种经典力学实验
@@ -545,7 +545,13 @@ export default function Home() {
                     )}
                   </div>
                 </div>
-                <KnowledgeGraphVisualizer graph={knowledgeResult.graph} width={750} height={480} title="物理知识图谱" />
+                <KnowledgeGraphVisualizer
+                  graph={FULL_KNOWLEDGE_GRAPH}
+                  mappedNodeIds={new Set(knowledgeResult.graph.nodes.map(n => n.id))}
+                  width={750}
+                  height={480}
+                  title="物理知识图谱"
+                />
               </div>
             )}
           </div>
