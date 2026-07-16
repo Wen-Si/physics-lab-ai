@@ -532,11 +532,18 @@ export class ParameterExtractorNode extends WorkflowNode {
         });
         break;
 
-      case 'projectile':
+      case 'projectile': {
+        // 平抛运动 — 从高处水平抛出
+        const projHeightMatch = text.match(/(\d+(?:\.\d+)?)\s*米/) || text.match(/(\d+(?:\.\d+)?)\s*m\b/);
+        const projVelMatch = text.match(/(\d+(?:\.\d+)?)\s*m\/s/) || text.match(/(\d+(?:\.\d+)?)\s*米\/秒/);
+        const projMassMatch = text.match(/(\d+(?:\.\d+)?)\s*kg/) || text.match(/质量.*?(\d+(?:\.\d+)?)/);
+        const projH = projHeightMatch ? parseFloat(projHeightMatch[1]) : (numbers[0] || 5);
+        const projV = projVelMatch ? parseFloat(projVelMatch[1]) : 0;
+        const projMass = projMassMatch ? parseFloat(projMassMatch[1]) : 0.5;
         objects.push({
           id: 'ball_1', name: '小球', type: 'sphere',
-          position: [0, numbers[0] || 5, 0], rotation: [0, 0, 0], scale: [0.4, 0.4, 0.4],
-          mass: numbers[1] || 0.5, color: '#fd79a8'
+          position: [0, projH, 0], rotation: [0, 0, 0], scale: [0.4, 0.4, 0.4],
+          mass: projMass, velocity: [projV, 0, 0], color: '#fd79a8'
         });
         objects.push({
           id: 'ground', name: '地面', type: 'plane',
@@ -544,6 +551,7 @@ export class ParameterExtractorNode extends WorkflowNode {
           mass: 0, color: '#3a5a7a'
         });
         break;
+      }
 
       case 'ramp': {
         // 斜面绕Z轴旋转+Math.PI/6 → 几何上 +X 端为高端（顶端），-X 端为低端（底端）
@@ -1424,7 +1432,7 @@ ${lawsText}
 - 最大动能：${finalKE} J
 - 能量守恒验证：整个过程中总能量保持不变，验证了能量守恒定律`,
 
-      pendulum: `这是一个单摆实验模拟。摆长${Math.abs((parameters.objects.find(o => o.id === 'pivot') || parameters.objects[0]).position[1] - (parameters.objects.find(o => o.id === 'bob') || parameters.objects[1]).position[1])}m，摆球质量${(parameters.objects.find(o => o.id === 'bob') || parameters.objects[1]).mass || 0.5}kg。
+      pendulum: `这是一个单摆实验模拟。摆长${(() => { const p = parameters.objects.find(o => o.id === 'pivot') || parameters.objects[0]; const b = parameters.objects.find(o => o.id === 'bob') || parameters.objects[1]; return Math.sqrt(Math.pow(b.position[0]-p.position[0],2)+Math.pow(b.position[1]-p.position[1],2)).toFixed(2); })()}m，摆球质量${(parameters.objects.find(o => o.id === 'bob') || parameters.objects[1]).mass || 0.5}kg。
 
 实验过程：
 1. 初始状态：摆球偏离平衡位置，具有最大势能
