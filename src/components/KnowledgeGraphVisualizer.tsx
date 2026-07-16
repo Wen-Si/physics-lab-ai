@@ -455,16 +455,16 @@ export default function KnowledgeGraphVisualizer({
                   )}
                   {/* 普通映射节点外圈光环 */}
                   {isMapped && !isTopNode && hasMapping && !isSelected && !isHovered && (
-                    <circle r={node.radius * 1.35} fill="none" stroke={nodeColor} strokeWidth="1" opacity="0.35" />
+                    <circle r={node.radius * 1.35} fill="none" stroke={nodeColor} strokeWidth="1" opacity="0.2" />
                   )}
                   <circle r={node.radius * scale} fill={nodeColor} stroke={isSelected ? '#fff' : isTopNode ? '#ffd54f' : '#1a1a2e'}
                     strokeWidth={isSelected ? 3 : isTopNode ? 2.5 : 2}
                     filter={isTopNode ? 'url(#glow-top)' : isMapped ? `url(#glow-${ot})` : 'none'}
-                    opacity={isTopNode ? 1 : isMapped ? 0.9 : 0.5}
+                    opacity={isTopNode ? 1 : isMapped ? 0.55 : 0.5}
                     style={{ transition: 'all 0.2s ease' }} />
-                  <circle r={node.radius * scale * 0.6} fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
+                  <circle r={node.radius * scale * 0.6} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
                   <text y={4} textAnchor="middle" fontSize={isTopNode ? '12px' : ot === 'entity' || ot === 'concept' ? '11px' : '10px'}
-                    fill={isTopNode ? '#1a1a2e' : isMapped ? '#1a1a2e' : '#3a3a4e'} fontWeight="bold" style={{ pointerEvents: 'none' }}>
+                    fill={isTopNode ? '#1a1a2e' : isMapped ? '#2a2a3e' : '#3a3a4e'} fontWeight="bold" style={{ pointerEvents: 'none' }}>
                     {node.name.length > 6 ? node.name.substring(0, 6) + '...' : node.name}
                   </text>
                   {/* Top-N 核心节点星标 */}
