@@ -724,7 +724,7 @@ export default function Home() {
                   mappedNodeIds={new Set(knowledgeResult.graph.nodes.map(n => n.id))}
                   topNodeIds={knowledgeResult.topNodeIds}
                   width={750}
-                  height={480}
+                  height={560}
                   title="物理知识图谱"
                 />
               </div>

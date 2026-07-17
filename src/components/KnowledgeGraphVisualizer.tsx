@@ -104,20 +104,24 @@ function getNodeEmoji(node: KnowledgeNode): string {
 }
 
 // 一次性运行力导向布局
+// 布局参数针对 60-80 节点的知识图谱调优，保证节点间有充足间距
 function runForceLayout(
   graph: KnowledgeGraph,
   width: number,
   height: number,
-  iterations: number = 300
+  iterations: number = 400
 ): { nodes: NodePosition[]; edges: EdgePosition[] } {
   const centerX = width / 2;
   const centerY = height / 2;
-  const radius = Math.min(width, height) / 3;
+  // 初始分布半径增大（/2.2 vs 原 /3），让节点起始时就更分散
+  const radius = Math.min(width, height) / 2.2;
+  // 边界留白：节点半径 + 20px，避免节点紧贴画布边缘
+  const boundaryPadding = 20;
 
   const nodes: NodePosition[] = graph.nodes.map((node, index) => {
     const angle = (index / graph.nodes.length) * 2 * Math.PI;
     const ot = (node as any).objectType || node.type;
-    const r = (ot === 'law' || ot === 'formula' || ot === 'process') ? radius * 0.6 : radius;
+    const r = (ot === 'law' || ot === 'formula' || ot === 'process') ? radius * 0.55 : radius;
     return {
       ...node,
       x: centerX + r * Math.cos(angle),
@@ -128,6 +132,13 @@ function runForceLayout(
     };
   });
 
+  // 斥力常数：增大到 30000，使节点间排斥力更强，间距更大
+  const REPULSION = 30000;
+  // 连接目标距离：增大到 200，连接的节点之间保持更远距离
+  const LINK_DISTANCE = 200;
+  // 中心引力系数：减小到 0.0003，允许节点分布更分散
+  const CENTER_GRAVITY = 0.0003;
+
   for (let iter = 0; iter < iterations; iter++) {
     const alpha = 1 - iter / iterations;
 
@@ -136,7 +147,7 @@ function runForceLayout(
         const dx = nodes[i].x - nodes[j].x;
         const dy = nodes[i].y - nodes[j].y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const force = (8000 * alpha) / (dist * dist);
+        const force = (REPULSION * alpha) / (dist * dist);
         const fx = (dx / dist) * force;
         const fy = (dy / dist) * force;
         nodes[i].vx += fx;
@@ -153,7 +164,7 @@ function runForceLayout(
       const dx = target.x - source.x;
       const dy = target.y - source.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const force = (dist - 120) * 0.05 * edge.weight * alpha;
+      const force = (dist - LINK_DISTANCE) * 0.05 * edge.weight * alpha;
       source.vx += (dx / dist) * force;
       source.vy += (dy / dist) * force;
       target.vx -= (dx / dist) * force;
@@ -161,8 +172,8 @@ function runForceLayout(
     });
 
     nodes.forEach(node => {
-      node.vx += (centerX - node.x) * 0.001 * alpha;
-      node.vy += (centerY - node.y) * 0.001 * alpha;
+      node.vx += (centerX - node.x) * CENTER_GRAVITY * alpha;
+      node.vy += (centerY - node.y) * CENTER_GRAVITY * alpha;
     });
 
     nodes.forEach(node => {
@@ -170,8 +181,8 @@ function runForceLayout(
       node.vy *= 0.85;
       node.x += node.vx;
       node.y += node.vy;
-      node.x = Math.max(node.radius + 10, Math.min(width - node.radius - 10, node.x));
-      node.y = Math.max(node.radius + 10, Math.min(height - node.radius - 10, node.y));
+      node.x = Math.max(node.radius + boundaryPadding, Math.min(width - node.radius - boundaryPadding, node.x));
+      node.y = Math.max(node.radius + boundaryPadding, Math.min(height - node.radius - boundaryPadding, node.y));
     });
   }
 
@@ -210,7 +221,7 @@ export default function KnowledgeGraphVisualizer({
 
   const layoutResult = useMemo(() => {
     if (!graph || graph.nodes.length === 0) return null;
-    return runForceLayout(graph, width, height, 300);
+    return runForceLayout(graph, width, height, 400);
   }, [graph, width, height]);
 
   const [nodePositions, setNodePositions] = useState<NodePosition[]>([]);
