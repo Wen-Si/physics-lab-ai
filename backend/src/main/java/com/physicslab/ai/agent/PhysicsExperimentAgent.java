@@ -45,6 +45,12 @@ public class PhysicsExperimentAgent {
     /** Maximum ReAct reasoning rounds (Thought→Action→Observation loops). */
     private static final int MAX_REACT_ROUNDS = 3;
 
+    /** Maximum retries on HTTP 429 (rate limit) before giving up. */
+    private static final int MAX_RATE_LIMIT_RETRIES = 3;
+
+    /** Base delay (ms) between rate-limit retries — doubles each time (exponential backoff). */
+    private static final long RATE_LIMIT_BASE_DELAY_MS = 2000;
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final ChatClient chatClient;
@@ -183,6 +189,18 @@ public class PhysicsExperimentAgent {
                 // LLM didn't produce an action or final answer — ask it to conclude
                 conversationHistory.append("\n请直接给出 Final Answer。\n");
             }
+
+            // Small delay between ReAct rounds to avoid hitting ZhiPu AI rate limits.
+            // GLM-4.5-flash allows ~5 req/s; without this delay, rapid successive
+            // calls within a single node's ReAct loop can trigger HTTP 429.
+            if (round < MAX_REACT_ROUNDS - 1) {
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
         }
 
         // ---- Max rounds reached: ask LLM for a final answer based on observations ----
@@ -289,23 +307,48 @@ public class PhysicsExperimentAgent {
     /**
      * Call ChatClient with a system prompt and user message, with timeout.
      * Unwraps {@link ExecutionException} to expose the root cause.
+     *
+     * <p>Includes automatic retry with exponential backoff for HTTP 429 (rate limit)
+     * errors from the ZhiPu AI API. The GLM-4.5-flash model has a rate limit of
+     * ~5 requests/second, and the ReAct loop can generate rapid sequential calls
+     * that exceed this limit.</p>
      */
     private String callChatClient(String systemPrompt, String userMessage) throws Exception {
-        CompletableFuture<String> future = CompletableFuture.supplyAsync(() ->
-                chatClient.prompt()
-                        .system(systemPrompt)
-                        .user(userMessage)
-                        .call()
-                        .content());
-        try {
-            return future.get(AI_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (ExecutionException e) {
-            // Unwrap to get the real cause (e.g. WebClientResponseException, connect refused, etc.)
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
-            log.error("ChatClient call failed. Root cause: {} - {}",
-                    cause.getClass().getName(), cause.getMessage(), cause);
-            throw cause instanceof Exception ex ? ex : e;
+        Exception lastException = null;
+
+        for (int attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
+            try {
+                CompletableFuture<String> future = CompletableFuture.supplyAsync(() ->
+                        chatClient.prompt()
+                                .system(systemPrompt)
+                                .user(userMessage)
+                                .call()
+                                .content());
+                return future.get(AI_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+
+                // Check if this is a rate-limit error (HTTP 429)
+                String errorMsg = cause.getMessage() != null ? cause.getMessage() : "";
+                boolean isRateLimit = errorMsg.contains("429") || errorMsg.contains("速率限制") || errorMsg.contains("rate limit");
+
+                if (isRateLimit && attempt < MAX_RATE_LIMIT_RETRIES) {
+                    long delay = RATE_LIMIT_BASE_DELAY_MS * (1L << attempt); // 2s, 4s, 8s
+                    log.warn("Rate limited (429) on attempt {}/{} for node, retrying in {}ms...",
+                            attempt + 1, MAX_RATE_LIMIT_RETRIES + 1, delay);
+                    Thread.sleep(delay);
+                    lastException = cause instanceof Exception ex ? ex : e;
+                    continue;
+                }
+
+                log.error("ChatClient call failed. Root cause: {} - {}",
+                        cause.getClass().getName(), cause.getMessage(), cause);
+                throw cause instanceof Exception ex ? ex : e;
+            }
         }
+
+        // Should not reach here, but just in case
+        throw lastException != null ? lastException : new RuntimeException("AI call failed after retries");
     }
 
     // ========================================================================

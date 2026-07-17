@@ -4,7 +4,7 @@
   "description": "AI-powered physics experiment simulator with 3D visualization",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "rm -rf src/app/api && next build && git checkout -- src/app/api",
     "start": "next start",
     "export": "next build && next export",
     "deploy": "gh-pages -d out"

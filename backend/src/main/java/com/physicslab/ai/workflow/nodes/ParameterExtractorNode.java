@@ -36,7 +36,7 @@ public class ParameterExtractorNode implements WorkflowNode {
         String input = context.getInput() == null ? "" : context.getInput();
         Map<String, Object> aiParams = new LinkedHashMap<>();
 
-        // ---- 1. Detect scene type from keywords (orbital takes precedence over circular) ----
+        // ---- 1. Detect scene type from keywords ----
         String sceneType = detectSceneType(input);
         context.setSceneType(sceneType);
         aiParams.put("sceneType", sceneType);
@@ -67,12 +67,31 @@ public class ParameterExtractorNode implements WorkflowNode {
     }
 
     /**
-     * Detect the scene type. {@code orbital} is checked before
-     * {@code circular} so that planet/orbit/star descriptions are not
-     * misclassified as generic circular motion.
+     * Detect the scene type from keyword matching.
+     *
+     * <p>Detection priority:</p>
+     * <ol>
+     *   <li><b>orbital</b> — unambiguous keywords: 行星, 恒星, 卫星.
+     *       Checked first because planet descriptions may also contain
+     *       "匀速圆周运动" (e.g. "行星绕恒星做匀速圆周运动" is orbital).</li>
+     *   <li><b>circular</b> — 圆周运动, 匀速圆周, 圆轨道.
+     *       Must be checked before the generic "轨道" fallback below,
+     *       because "圆轨道" contains the substring "轨道".</li>
+     *   <li><b>orbital (fallback)</b> — generic "轨道" without "圆"
+     *       indicates orbital motion (e.g. "椭圆轨道").</li>
+     * </ol>
      */
     private String detectSceneType(String input) {
-        if (containsAny(input, "行星", "轨道", "恒星")) {
+        // 1. Unambiguous orbital keywords (planet, star, satellite)
+        if (containsAny(input, "行星", "恒星", "卫星")) {
+            return "orbital";
+        }
+        // 2. Circular motion — must precede generic "轨道" check
+        if (containsAny(input, "圆周运动", "匀速圆周", "圆轨道")) {
+            return "circular";
+        }
+        // 3. Generic "轨道" (without "圆") → orbital
+        if (input.contains("轨道")) {
             return "orbital";
         }
         if (containsAny(input, "自由落体", "落下", "下落")) {
@@ -92,9 +111,6 @@ public class ParameterExtractorNode implements WorkflowNode {
         }
         if (containsAny(input, "斜面", "下滑")) {
             return "ramp";
-        }
-        if (containsAny(input, "圆周运动", "匀速圆周")) {
-            return "circular";
         }
         if (input.contains("碰撞")) {
             return "collision";
