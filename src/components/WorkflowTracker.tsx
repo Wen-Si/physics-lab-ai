@@ -8,7 +8,8 @@
  *   - error     红色叉
  *
  * 顶部展示总体进度条（已完成节点数 / 12），
- * 处于 running 状态的节点会附带 AI 思考过程的动画文本。
+ * 处于 running 状态的节点会附带 ReAct 推理过程的每一步：
+ *   💭 Thought → ⚡ Action → 👁 Observation → ✓ Final Answer
  *
  * 样式与项目主页面保持一致：暗色主题（#0a0a1a 背景、#6ab0ff 主色）。
  */
@@ -16,6 +17,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import type { ReActStep } from '../api/agent';
 
 /** 节点状态枚举 */
 export type WorkflowNodeState = 'pending' | 'running' | 'completed' | 'error';
@@ -41,6 +43,8 @@ interface WorkflowTrackerProps {
   activeNodeIndex: number;
   /** AI 思考过程文本，仅在某个节点 running 时显示 */
   aiThinkingMessage: string | null;
+  /** ReAct 推理步骤列表（按 nodeIndex 分组显示） */
+  reactSteps: ReActStep[];
 }
 
 /** 状态 -> 主题色 */
@@ -49,6 +53,14 @@ const STATUS_COLORS: Record<WorkflowNodeState, string> = {
   running: '#6ab0ff',
   completed: '#00e676',
   error: '#ff5252',
+};
+
+/** ReAct 步骤类型 -> 图标 + 颜色 + 标签 */
+const REACT_STEP_META: Record<string, { icon: string; color: string; label: string; bg: string }> = {
+  thought:       { icon: '💭', color: '#6ab0ff', label: 'Thought',       bg: 'rgba(106, 176, 255, 0.08)' },
+  action:        { icon: '⚡', color: '#ffd54f', label: 'Action',        bg: 'rgba(255, 213, 79, 0.08)' },
+  observation:   { icon: '👁', color: '#00e676', label: 'Observation',   bg: 'rgba(0, 230, 118, 0.08)' },
+  final_answer:  { icon: '✅', color: '#00e676', label: 'Final Answer',  bg: 'rgba(0, 230, 118, 0.12)' },
 };
 
 /** 状态 -> 图标 */
@@ -78,10 +90,62 @@ function StatusIcon({ status }: { status: WorkflowNodeState }) {
   }
 }
 
+/** 单个 ReAct 步骤的渲染 */
+function ReActStepItem({ step }: { step: ReActStep }) {
+  const meta = REACT_STEP_META[step.stepType] || REACT_STEP_META.thought;
+  const isFinal = step.stepType === 'final_answer';
+  return (
+    <div
+      key={step.stepNumber}
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: '6px',
+        padding: '4px 8px',
+        background: meta.bg,
+        borderLeft: `2px solid ${meta.color}`,
+        borderRadius: '2px',
+        animation: 'wft-thinking-fade 0.4s ease',
+      }}
+    >
+      <span style={{ fontSize: '12px', lineHeight: '1.5', flexShrink: 0 }}>{meta.icon}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <span
+          style={{
+            fontSize: '9px',
+            color: meta.color,
+            fontFamily: "'JetBrains Mono', monospace",
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+            marginRight: '4px',
+          }}
+        >
+          {meta.label}
+        </span>
+        <span
+          style={{
+            fontSize: isFinal ? '12px' : '11px',
+            color: isFinal ? '#e8eef7' : '#8896b0',
+            fontFamily: "'JetBrains Mono', monospace",
+            fontWeight: isFinal ? 600 : 400,
+            lineHeight: 1.5,
+            wordBreak: 'break-word',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {step.content}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 const WorkflowTracker: React.FC<WorkflowTrackerProps> = ({
   nodes,
   activeNodeIndex,
   aiThinkingMessage,
+  reactSteps,
 }) => {
   const completedCount = nodes.filter(n => n.status === 'completed').length;
   const totalCount = nodes.length || 12;
@@ -92,6 +156,14 @@ const WorkflowTracker: React.FC<WorkflowTrackerProps> = ({
   useEffect(() => {
     setThinkingKey(k => k + 1);
   }, [aiThinkingMessage]);
+
+  // 按 nodeIndex 分组 ReAct 步骤
+  const stepsByNode = new Map<number, ReActStep[]>();
+  for (const step of reactSteps) {
+    const arr = stepsByNode.get(step.nodeIndex) || [];
+    arr.push(step);
+    stepsByNode.set(step.nodeIndex, arr);
+  }
 
   return (
     <div
@@ -132,7 +204,7 @@ const WorkflowTracker: React.FC<WorkflowTrackerProps> = ({
       {/* 头部：标题 + 进度 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
         <span style={{ fontSize: '11px', color: '#8896b0', letterSpacing: '1px', textTransform: 'uppercase', fontWeight: 600 }}>
-          智能体工作流
+          🤖 智能体工作流 (ReAct)
         </span>
         <span style={{ fontSize: '11px', color: '#6ab0ff', fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>
           {completedCount}/{totalCount}
@@ -166,6 +238,8 @@ const WorkflowTracker: React.FC<WorkflowTrackerProps> = ({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
         {nodes.map(node => {
           const isActive = node.index === activeNodeIndex && node.status === 'running';
+          const nodeSteps = stepsByNode.get(node.index) || [];
+          const hasSteps = nodeSteps.length > 0;
           return (
             <div
               key={node.index}
@@ -267,15 +341,15 @@ const WorkflowTracker: React.FC<WorkflowTrackerProps> = ({
                   {node.description}
                 </div>
 
-                {/* 当前正在运行节点的 AI 思考文本 */}
+                {/* AI 思考提示文本（ReAct 调用前的提示） */}
                 {isActive && aiThinkingMessage && (
                   <div
                     key={thinkingKey}
                     style={{
                       marginTop: '4px',
                       padding: '4px 6px',
-                      fontSize: '11px',
-                      color: '#8896b0',
+                      fontSize: '10px',
+                      color: '#6ab0ff',
                       fontFamily: "'JetBrains Mono', monospace",
                       background: 'rgba(106, 176, 255, 0.06)',
                       borderLeft: '2px solid #6ab0ff',
@@ -287,6 +361,15 @@ const WorkflowTracker: React.FC<WorkflowTrackerProps> = ({
                     }}
                   >
                     {aiThinkingMessage}
+                  </div>
+                )}
+
+                {/* ReAct 推理步骤（Thought → Action → Observation → Final Answer） */}
+                {hasSteps && (
+                  <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    {nodeSteps.map(step => (
+                      <ReActStepItem key={step.stepNumber} step={step} />
+                    ))}
                   </div>
                 )}
 

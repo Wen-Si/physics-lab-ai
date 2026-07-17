@@ -11,7 +11,7 @@ import KnowledgeGraphVisualizer from '../components/KnowledgeGraphVisualizer';
 import { workflowEngine, ExperimentOutput, WorkflowState } from '../workflow/engine';
 import { extractKnowledgeGraph, ExtractionResult, FULL_KNOWLEDGE_GRAPH } from '../knowledge/extraction-engine';
 import { callZhipuAI, parseAIResponse, enhancedPhysicsUnderstanding } from '../api/zhipu';
-import { generateExperimentWithAgent, AgentResult, WORKFLOW_NODES, checkAgentHealth } from '../api/agent';
+import { generateExperimentWithAgent, AgentResult, WORKFLOW_NODES, checkAgentHealth, ReActStep } from '../api/agent';
 import WorkflowTracker, { WorkflowNodeStatus } from '../components/WorkflowTracker';
 
 // 预设实验模板 — 10种经典力学实验
@@ -75,6 +75,8 @@ export default function Home() {
   const [workflowNodes, setWorkflowNodes] = useState<WorkflowNodeStatus[]>([]);
   const [activeNodeIndex, setActiveNodeIndex] = useState(-1);
   const [aiThinkingMessage, setAiThinkingMessage] = useState<string | null>(null);
+  /** ReAct 推理步骤列表 — 每个步骤包含 nodeIndex, stepType, content, stepNumber */
+  const [reactSteps, setReactSteps] = useState<ReActStep[]>([]);
   // true = 使用 Spring AI 智能体后端；false = 回退到本地工作流（callZhipuAI）
   const [agentMode, setAgentMode] = useState<boolean>(true);
 
@@ -264,9 +266,10 @@ export default function Home() {
     setCurrentTime(0);
     setIsPlaying(false);
     setProcessingStep(0);
+    setReactSteps([]);  // 清空上一轮 ReAct 步骤
 
     try {
-      // 调用 Spring AI 智能体，流式接收 12 节点执行进度
+      // 调用 Spring AI 智能体，流式接收 12 节点执行进度 + ReAct 推理步骤
       const agentResult: AgentResult = await generateExperimentWithAgent(
         userInput,
         // onNodeStart: 更新节点为 running，设置 activeNodeIndex
@@ -293,6 +296,10 @@ export default function Home() {
         // onAIThinking: 设置 AI 思考文本
         (message) => {
           setAiThinkingMessage(message);
+        },
+        // onReActStep: 追加 ReAct 推理步骤（Thought/Action/Observation/Final Answer）
+        (step) => {
+          setReactSteps(prev => [...prev, step]);
         }
       );
 
@@ -507,7 +514,7 @@ export default function Home() {
             </div>
             {/* 智能体模式徽章：显示当前是 Spring AI 智能体模式还是本地回退模式 */}
             <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: agentMode ? 'rgba(0, 230, 118, 0.15)' : 'rgba(255, 107, 107, 0.15)', color: agentMode ? '#00e676' : '#ff6b6b', border: `1px solid ${agentMode ? 'rgba(0, 230, 118, 0.3)' : 'rgba(255, 107, 107, 0.3)'}` }}>
-              {agentMode ? '🤖 Spring AI 智能体' : '📱 本地模式'}
+              {agentMode ? '🤖 GLM-4.5-flash ReAct' : '📱 本地模式'}
             </span>
           </div>
           <div className="header-info">
@@ -620,6 +627,7 @@ export default function Home() {
               nodes={workflowNodes}
               activeNodeIndex={activeNodeIndex}
               aiThinkingMessage={aiThinkingMessage}
+              reactSteps={reactSteps}
             />
           )}
         </aside>

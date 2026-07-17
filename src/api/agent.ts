@@ -6,7 +6,8 @@
  *   - GET  /api/experiment/health    (健康检查)
  *
  * 该模块负责将后端的 SSE 事件流解析为 React 可消费的回调，
- * 用于在 12 节点工作流面板上实时显示智能体的执行进度。
+ * 用于在 12 节点工作流面板上实时显示智能体的执行进度，
+ * 以及 ReAct (Reason-Act) 推理过程的每一步。
  */
 
 /** 智能体执行产出的结构化结果 */
@@ -25,15 +26,36 @@ export interface AgentResult {
   augmentedInput: string;
 }
 
+/**
+ * ReAct (Reason-Act) 推理过程中的单个步骤。
+ * 后端通过 SSE `react_step` 事件推送，前端按 nodeIndex 分组显示。
+ */
+export interface ReActStep {
+  /** 所属节点序号（0-11） */
+  nodeIndex: number;
+  /** 步骤类型: thought(推理) / action(行动) / observation(观察) / final_answer(最终答案) */
+  stepType: 'thought' | 'action' | 'observation' | 'final_answer';
+  /** 步骤内容文本 */
+  content: string;
+  /** 步骤序号（1-based，在当前节点内递增） */
+  stepNumber: number;
+}
+
 /** 后端 SSE 事件的基础结构 */
 interface AgentEvent {
-  type: 'node_start' | 'node_complete' | 'ai_thinking' | 'complete' | 'error';
+  type: 'node_start' | 'node_complete' | 'ai_thinking' | 'react_step' | 'complete' | 'error';
   nodeIndex?: number;
   nodeName?: string;
   description?: string;
   message?: string;
   result?: string;
   output?: AgentResult;
+  /** react_step 事件: 步骤类型 */
+  reactStepType?: string;
+  /** react_step 事件: 步骤内容 */
+  reactStepContent?: string;
+  /** react_step 事件: 步骤序号 */
+  reactStepNumber?: number;
 }
 
 /**
@@ -41,12 +63,18 @@ interface AgentEvent {
  * 开发环境通过 Next.js rewrites 代理到 http://localhost:8080，
  * 生产环境（GitHub Pages）健康检查会失败，自动回退到本地模式。
  */
+// 使用 Next.js API Route 代理 (src/app/api/experiment/*/route.ts) 访问后端。
+// API Route 在服务端运行, 可以直接访问 http://localhost:8080, 并通过 ReadableStream
+// 逐块转发 SSE 事件, 避免 Next.js rewrite 代理的缓冲问题。
+// 生产环境 (output: 'export') 不打包 API Route, 健康检查失败后自动回退到本地模式。
 const BASE_PATH = '/physics-lab-ai';
-const GENERATE_URL = `${BASE_PATH}/api/experiment/generate`;
-const HEALTH_URL = `${BASE_PATH}/api/experiment/health`;
+// trailingSlash: true 会将无尾斜杠 URL 重定向, POST + SSE 在重定向时会丢失流式响应,
+// 因此 API URL 必须显式带上尾斜杠。
+const GENERATE_URL = `${BASE_PATH}/api/experiment/generate/`;
+const HEALTH_URL = `${BASE_PATH}/api/experiment/health/`;
 
 /** 默认请求超时时间（毫秒） */
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 /**
  * 12 个工作流节点定义。
@@ -108,12 +136,13 @@ function parseSSEChunk(buffer: string): { events: string[]; remainder: string } 
 }
 
 /**
- * 调用 Spring AI 智能体后端，流式接收工作流执行进度。
+ * 调用 Spring AI 智能体后端，流式接收工作流执行进度和 ReAct 推理过程。
  *
  * @param input           用户的自然语言实验描述
  * @param onNodeStart     当某个工作流节点开始执行时触发
  * @param onNodeComplete  当某个工作流节点执行完成时触发
  * @param onAIThinking    当 AI 输出思考过程文本时触发
+ * @param onReActStep     当 ReAct 推理产生新步骤时触发（Thought/Action/Observation/Final Answer）
  * @returns               智能体最终输出的 AgentResult
  */
 export async function generateExperimentWithAgent(
@@ -121,6 +150,7 @@ export async function generateExperimentWithAgent(
   onNodeStart: (nodeIndex: number, nodeName: string, nodeDescription: string) => void,
   onNodeComplete: (nodeIndex: number, nodeName: string, result: string) => void,
   onAIThinking: (message: string) => void,
+  onReActStep: (step: ReActStep) => void,
 ): Promise<AgentResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(new Error('Agent request timeout')), DEFAULT_TIMEOUT_MS);
@@ -185,6 +215,16 @@ export async function generateExperimentWithAgent(
           case 'ai_thinking':
             if (event.message) onAIThinking(event.message);
             break;
+          case 'react_step':
+            if (typeof event.nodeIndex === 'number' && event.reactStepType) {
+              onReActStep({
+                nodeIndex: event.nodeIndex,
+                stepType: event.reactStepType as ReActStep['stepType'],
+                content: event.reactStepContent ?? '',
+                stepNumber: event.reactStepNumber ?? 0,
+              });
+            }
+            break;
           case 'complete':
             if (event.output) {
               resolved = true;
@@ -217,7 +257,7 @@ export async function generateExperimentWithAgent(
     throw new Error('Agent stream ended unexpectedly');
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('Agent request timeout (30s)');
+      throw new Error('Agent request timeout (60s)');
     }
     throw err;
   } finally {

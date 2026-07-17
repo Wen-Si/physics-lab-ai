@@ -80,6 +80,23 @@ public class WorkflowContext {
         }
     }
 
+    /**
+     * Emit a {@code react_step} event carrying a single ReAct reasoning step
+     * (Thought / Action / Observation / Final Answer) to the SSE stream.
+     *
+     * @param nodeIndex     the node currently executing
+     * @param nodeName      the node name
+     * @param stepType      one of: thought, action, observation, final_answer
+     * @param content       the textual content of this reasoning step
+     * @param stepNumber    1-based step counter within the current node
+     */
+    public void emitReActStep(Integer nodeIndex, String nodeName,
+                              String stepType, String content, int stepNumber) {
+        if (eventSink != null) {
+            eventSink.accept(WorkflowEvent.reactStep(nodeIndex, nodeName, stepType, content, stepNumber));
+        }
+    }
+
     public String getInput() {
         return input;
     }
