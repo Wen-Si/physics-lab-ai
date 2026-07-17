@@ -37,3 +37,7 @@ yarn-error.log*
 .vscode/
 *.swp
 *.swo
+
+# Spring Boot backend
+backend/target/
+*.class

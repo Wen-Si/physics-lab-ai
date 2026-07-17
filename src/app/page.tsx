@@ -11,6 +11,8 @@ import KnowledgeGraphVisualizer from '../components/KnowledgeGraphVisualizer';
 import { workflowEngine, ExperimentOutput, WorkflowState } from '../workflow/engine';
 import { extractKnowledgeGraph, ExtractionResult, FULL_KNOWLEDGE_GRAPH } from '../knowledge/extraction-engine';
 import { callZhipuAI, parseAIResponse, enhancedPhysicsUnderstanding } from '../api/zhipu';
+import { generateExperimentWithAgent, AgentResult, WORKFLOW_NODES, checkAgentHealth } from '../api/agent';
+import WorkflowTracker, { WorkflowNodeStatus } from '../components/WorkflowTracker';
 
 // 预设实验模板 — 10种经典力学实验
 const EXPERIMENT_TEMPLATES = [
@@ -43,6 +45,17 @@ function saveToStorage<T>(key: string, value: T): void {
   } catch { /* ignore */ }
 }
 
+// 处理中遮罩层样式（与 .processing-overlay 一致，使用内联样式以便动态内容渲染）
+const overlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'rgba(5, 8, 16, 0.92)',
+  zIndex: 10,
+};
+
 export default function Home() {
   const [userInput, setUserInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -58,6 +71,13 @@ export default function Home() {
   const [knowledgeResult, setKnowledgeResult] = useState<ExtractionResult | null>(null);
   const [mounted, setMounted] = useState(false);
 
+  // === Spring AI 智能体相关状态 ===
+  const [workflowNodes, setWorkflowNodes] = useState<WorkflowNodeStatus[]>([]);
+  const [activeNodeIndex, setActiveNodeIndex] = useState(-1);
+  const [aiThinkingMessage, setAiThinkingMessage] = useState<string | null>(null);
+  // true = 使用 Spring AI 智能体后端；false = 回退到本地工作流（callZhipuAI）
+  const [agentMode, setAgentMode] = useState<boolean>(true);
+
   const animationRef = useRef<number | null>(null);
 
   // 从 localStorage 恢复状态
@@ -69,6 +89,13 @@ export default function Home() {
     if (savedInput) setUserInput(savedInput);
     setAnimationSpeed(savedSpeed);
     setActivePanel(savedPanel);
+  }, []);
+
+  // 初始化 12 个工作流节点为 pending 状态，并探测 Spring AI 后端是否可用
+  useEffect(() => {
+    setWorkflowNodes(WORKFLOW_NODES.map(n => ({ ...n, status: 'pending' as const })));
+    // 健康检查失败时自动回退到本地模式
+    checkAgentHealth().then(available => setAgentMode(available)).catch(() => setAgentMode(false));
   }, []);
 
   // 持久化关键状态
@@ -93,8 +120,9 @@ export default function Home() {
     }
   }, [experimentOutput, knowledgeResult, workflowState, mounted]);
 
-  // 处理用户输入
-  const handleProcess = useCallback(async () => {
+  // 本地处理流程（fallback）：使用智谱AI + 本地工作流引擎
+  // 当 Spring AI 智能体后端不可用、或调用失败时使用
+  const handleLocalProcess = useCallback(async () => {
     if (!userInput.trim()) {
       setError('请先输入实验描述或选择一个示例实验');
       return;
@@ -210,6 +238,118 @@ export default function Home() {
       setTimeout(() => setIsProcessing(false), 400);
     }
   }, [userInput]);
+
+  // 处理用户输入：优先使用 Spring AI 智能体后端，失败时回退到本地处理
+  const handleProcess = useCallback(async () => {
+    if (!userInput.trim()) {
+      setError('请先输入实验描述或选择一个示例实验');
+      return;
+    }
+
+    // 重置所有工作流节点为 pending 状态
+    setWorkflowNodes(WORKFLOW_NODES.map(n => ({ ...n, status: 'pending' as const })));
+    setActiveNodeIndex(-1);
+    setAiThinkingMessage(null);
+
+    // 非智能体模式：直接走本地处理
+    if (!agentMode) {
+      await handleLocalProcess();
+      return;
+    }
+
+    // 智能体模式：先尝试 Spring AI 后端
+    setIsProcessing(true);
+    setError('');
+    setShowWelcome(false);
+    setCurrentTime(0);
+    setIsPlaying(false);
+    setProcessingStep(0);
+
+    try {
+      // 调用 Spring AI 智能体，流式接收 12 节点执行进度
+      const agentResult: AgentResult = await generateExperimentWithAgent(
+        userInput,
+        // onNodeStart: 更新节点为 running，设置 activeNodeIndex
+        (nodeIndex, nodeName, nodeDescription) => {
+          setActiveNodeIndex(nodeIndex);
+          setWorkflowNodes(prev =>
+            prev.map(n =>
+              n.index === nodeIndex
+                ? { ...n, status: 'running' as const, name: nodeName || n.name, description: nodeDescription || n.description }
+                : n
+            )
+          );
+        },
+        // onNodeComplete: 更新节点为 completed，保存结果
+        (nodeIndex, nodeName, result) => {
+          setWorkflowNodes(prev =>
+            prev.map(n =>
+              n.index === nodeIndex
+                ? { ...n, status: 'completed' as const, name: nodeName || n.name, result }
+                : n
+            )
+          );
+        },
+        // onAIThinking: 设置 AI 思考文本
+        (message) => {
+          setAiThinkingMessage(message);
+        }
+      );
+
+      // 智能体返回后，用 augmentedInput 调用本地工作流引擎
+      const augmentedInput = agentResult.augmentedInput || userInput;
+      const state = await workflowEngine.execute(augmentedInput);
+      setWorkflowState(state);
+
+      // 用智能体返回的 aiParams 应用到 3D 场景（复用现有的参数注入逻辑）
+      const aiParams = agentResult.aiParams || {};
+      if (state.output && aiParams && Object.keys(aiParams).length > 0) {
+        applyAIParamsToScene(state, aiParams);
+        // 强制 scene 引用更新，触发 PhysicsRenderer 重新构建
+        if (state.scene) {
+          state.scene = { ...state.scene, objects: [...state.scene.objects] };
+          if (state.output) {
+            state.output = { ...state.output, scene: state.scene };
+          }
+        }
+      }
+
+      setProcessingStep(12);
+      setAiThinkingMessage(null);
+      setActiveNodeIndex(-1);
+
+      if (state.output) {
+        setExperimentOutput(state.output);
+
+        // 提取知识图谱（与本地模式保持一致）
+        const sceneType = (state.scene?.metadata as any)?.sceneType as string | undefined;
+        const knowledge = extractKnowledgeGraph(
+          userInput,
+          state.experimentType || 'mechanics',
+          state.physicsLaws?.map(l => l.name) || [],
+          (state.parameters || {}) as Record<string, unknown>,
+          sceneType
+        );
+        setKnowledgeResult(knowledge);
+
+        setTimeout(() => setIsPlaying(true), 800);
+      } else {
+        setError('未能生成实验结果，请尝试其他描述');
+      }
+    } catch (err) {
+      console.error('Spring AI 智能体调用失败，回退到本地处理:', err);
+      // 标记当前运行中的节点为 error，并清理思考状态
+      setWorkflowNodes(prev =>
+        prev.map(n => (n.status === 'running' ? { ...n, status: 'error' as const } : n))
+      );
+      setAiThinkingMessage(null);
+      setActiveNodeIndex(-1);
+      // 回退到本地处理（handleLocalProcess 会重新接管 isProcessing）
+      await handleLocalProcess();
+    } finally {
+      setTimeout(() => setIsProcessing(false), 400);
+    }
+  }, [userInput, agentMode, handleLocalProcess]);
 
   // 把 AI 识别出的参数（角度、质量、高度、初速度等）应用到 3D 场景对象上
   // 这样 3D 实验才能真正按照自然语言的描述来制作
@@ -365,6 +505,10 @@ export default function Home() {
               <h1>物理实验室 AI</h1>
               <span>Physics Lab · 12节点工作流 · 10种实验 · 知识图谱</span>
             </div>
+            {/* 智能体模式徽章：显示当前是 Spring AI 智能体模式还是本地回退模式 */}
+            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: agentMode ? 'rgba(0, 230, 118, 0.15)' : 'rgba(255, 107, 107, 0.15)', color: agentMode ? '#00e676' : '#ff6b6b', border: `1px solid ${agentMode ? 'rgba(0, 230, 118, 0.3)' : 'rgba(255, 107, 107, 0.3)'}` }}>
+              {agentMode ? '🤖 Spring AI 智能体' : '📱 本地模式'}
+            </span>
           </div>
           <div className="header-info">
             <div className="info-item">
@@ -469,6 +613,15 @@ export default function Home() {
               </div>
             </section>
           )}
+
+          {/* 工作流执行追踪器：在处理中或已有节点完成时显示 */}
+          {(isProcessing || workflowNodes.some(n => n.status === 'completed')) && (
+            <WorkflowTracker
+              nodes={workflowNodes}
+              activeNodeIndex={activeNodeIndex}
+              aiThinkingMessage={aiThinkingMessage}
+            />
+          )}
         </aside>
 
         {/* 中央可视化区域 */}
@@ -518,10 +671,15 @@ export default function Home() {
                   </div>
                 )}
                 {isProcessing && (
-                  <div className="processing-overlay">
-                    <div className="processing-animation">
-                      <div className="atom"><div className="nucleus" /><div className="electron e1" /><div className="electron e2" /><div className="electron e3" /></div>
-                      <p>正在构建物理场景... ({processingStep}/12)</p>
+                  <div style={overlayStyle}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚛</div>
+                      <div style={{ color: '#6ab0ff', fontSize: '16px', marginBottom: '8px' }}>
+                        {activeNodeIndex >= 0 ? `正在执行: ${WORKFLOW_NODES[activeNodeIndex]?.name}` : '正在启动智能体...'}
+                      </div>
+                      {aiThinkingMessage && (
+                        <div style={{ color: '#708090', fontSize: '13px' }}>{aiThinkingMessage}</div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -663,7 +821,7 @@ export default function Home() {
       {/* 底部状态栏 */}
       <footer className="physics-footer">
         <div className="footer-content">
-          <div className="footer-item"><span>⚙️</span><span>工作流: {workflowState?.completedNodes.length || 0}/12</span></div>
+          <div className="footer-item"><span>⚙️</span><span>{agentMode ? `智能体: ${workflowNodes.filter(n => n.status === 'completed').length}/12` : `工作流: ${workflowState?.completedNodes.length || 0}/12`}</span></div>
           <div className="footer-item"><span>🎨</span><span>3D: Three.js</span></div>
           <div className="footer-item"><span>🧠</span><span>知识图谱: {knowledgeResult?.graph.nodes.length || 0} 节点</span></div>
           <div className="footer-item"><span>💾</span><span>localStorage 已启用</span></div>

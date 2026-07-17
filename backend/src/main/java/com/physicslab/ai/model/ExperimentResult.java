@@ -1,0 +1,82 @@
+package com.physicslab.ai.model;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * The final result returned in the {@code complete} SSE event after the
+ * workflow finishes. The frontend consumes this to render the 3D physics
+ * experiment scene.
+ */
+public class ExperimentResult {
+
+    /** Experiment category, e.g. {@code "mechanics"}. */
+    private String experimentType;
+
+    /** Scene type, e.g. {@code "orbital"}, {@code "freefall"}, {@code "pendulum"}. */
+    private String sceneType;
+
+    /** AI-generated experiment description. */
+    private String description;
+
+    /** Applicable physics laws, e.g. {@code ["牛顿第二定律", "万有引力定律"]}. */
+    private List<String> physicsLaws = new ArrayList<>();
+
+    /** AI-extracted parameters (mass, height, angle, velocity, ...). */
+    private Map<String, Object> aiParams;
+
+    /** Original user input augmented with AI parameter hints. */
+    private String augmentedInput;
+
+    public ExperimentResult() {
+    }
+
+    public String getExperimentType() {
+        return experimentType;
+    }
+
+    public void setExperimentType(String experimentType) {
+        this.experimentType = experimentType;
+    }
+
+    public String getSceneType() {
+        return sceneType;
+    }
+
+    public void setSceneType(String sceneType) {
+        this.sceneType = sceneType;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public List<String> getPhysicsLaws() {
+        return physicsLaws;
+    }
+
+    public void setPhysicsLaws(List<String> physicsLaws) {
+        this.physicsLaws = physicsLaws;
+    }
+
+    public Map<String, Object> getAiParams() {
+        return aiParams;
+    }
+
+    public void setAiParams(Map<String, Object> aiParams) {
+        this.aiParams = aiParams;
+    }
+
+    public String getAugmentedInput() {
+        return augmentedInput;
+    }
+
+    public void setAugmentedInput(String augmentedInput) {
+        this.augmentedInput = augmentedInput;
+    }
+}
