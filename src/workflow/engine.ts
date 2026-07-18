@@ -120,7 +120,7 @@ export interface PhysicsLaw {
 export interface ExperimentScene {
   id: string;
   name: string;
-  sceneType: 'freefall' | 'pendulum' | 'spring' | 'projectile' | 'ramp' | 'circular' | 'collision' | 'angled_projectile' | 'atwood' | 'orbital' | 'electromagnetism' | 'optics' | 'thermodynamics' | 'waves' | 'modern_physics' | 'default';
+  sceneType: 'freefall' | 'pendulum' | 'spring' | 'projectile' | 'ramp' | 'circular' | 'collision' | 'angled_projectile' | 'atwood' | 'orbital' | 'uniform_acceleration' | 'damped_oscillation' | 'lorentz_force' | 'rc_circuit' | 'light_refraction' | 'isothermal_expansion' | 'wave_propagation' | 'ballistic_pendulum' | 'binary_star' | 'elevator_physics' | 'electromagnetism' | 'optics' | 'thermodynamics' | 'waves' | 'modern_physics' | 'default';
   objects: PhysicsObject[];
   environment: EnvironmentConfig;
   camera: { position: [number, number, number]; target: [number, number, number] };
@@ -440,6 +440,18 @@ export class ParameterExtractorNode extends WorkflowNode {
   // 推断具体实验子类型
   private inferSceneType(text: string, experimentType: ExperimentType): ExperimentScene['sceneType'] {
     const lower = text.toLowerCase();
+    // === 新增10个实验场景检测（优先于原有实验，避免关键词重叠） ===
+    if (/洛伦兹力|lorentz|带电粒子|磁感应强度|磁场.*电荷|电荷.*磁场/.test(lower)) return 'lorentz_force';
+    if (/rc电路|电容|充电|放电|电阻.*电容|capacitor/.test(lower)) return 'rc_circuit';
+    if (/折射|入射角|折射率|斯涅尔|refraction|snell/.test(lower)) return 'light_refraction';
+    if (/等温膨胀|理想气体|气体膨胀|活塞|isothermal/.test(lower)) return 'isothermal_expansion';
+    if (/波的传播|横波|纵波|波速|wave.*propagation/.test(lower)) return 'wave_propagation';
+    if (/阻尼振动|阻尼|阻尼系数|damped/.test(lower)) return 'damped_oscillation';
+    if (/冲击摆|子弹射入|弹道摆|ballistic/.test(lower)) return 'ballistic_pendulum';
+    if (/双星|双星系统|binary.*star/.test(lower)) return 'binary_star';
+    if (/超重|失重|电梯|升降梯|elevator|weightless/.test(lower)) return 'elevator_physics';
+    if (/匀加速|恒力|直线加速|小车加速|uniform.*acceleration/.test(lower)) return 'uniform_acceleration';
+
     if (experimentType === 'mechanics') {
       if (/碰撞|collision|撞/.test(lower)) return 'collision';
       if (/单摆|pendulum|摆动|周期/.test(lower)) return 'pendulum';
@@ -694,6 +706,264 @@ export class ParameterExtractorNode extends WorkflowNode {
         break;
       }
 
+      // === 新增10个实验场景的3D对象构建 ===
+      case 'uniform_acceleration': {
+        // 匀加速直线运动 — 小车在恒力作用下加速
+        const uaMassM = text.match(/质量\s*(?:为)?\s*(\d+(?:\.\d+)?)\s*kg/);
+        const uaForceM = text.match(/(\d+(?:\.\d+)?)\s*N/);
+        const uaMass = uaMassM ? Number(uaMassM[1]) : (numbers.find(n => n < 5) || 1);
+        const uaForce = uaForceM ? Number(uaForceM[1]) : (numbers.find(n => n >= 2 && n !== uaMass) || 2);
+        objects.push({
+          id: 'cart', name: '小车', type: 'cube',
+          position: [-4, 1, 0], rotation: [0, 0, 0], scale: [0.8, 0.5, 0.5],
+          mass: uaMass, velocity: [0, 0, 0], color: '#5f27cd'
+        });
+        objects.push({
+          id: 'ground', name: '地面', type: 'plane',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [20, 0.1, 5],
+          mass: 0, color: '#1a2a3a'
+        });
+        break;
+      }
+
+      case 'damped_oscillation': {
+        // 阻尼振动 — 弹簧+阻尼
+        const doMassM = text.match(/质量\s*(?:为)?\s*(\d+(?:\.\d+)?)\s*kg/);
+        const doSpringM = text.match(/弹簧系数\s*(\d+(?:\.\d+)?)\s*N\/m/);
+        const doDampM = text.match(/阻尼系数\s*(\d+(?:\.\d+)?)/);
+        const doAmpM = text.match(/(?:偏离|振幅).*?(\d+(?:\.\d+)?)\s*m/);
+        const doMass = doMassM ? Number(doMassM[1]) : 1;
+        const doAmp = doAmpM ? Number(doAmpM[1]) : 0.3;
+        objects.push({
+          id: 'wall', name: '墙壁', type: 'cube',
+          position: [-3, 1.5, 0], rotation: [0, 0, 0], scale: [0.3, 3, 2],
+          color: '#636e72'
+        });
+        objects.push({
+          id: 'mass_block', name: '振子', type: 'cube',
+          position: [-3 + doAmp + 1.5, 1, 0], rotation: [0, 0, 0], scale: [0.6, 0.6, 0.6],
+          mass: doMass, color: '#00d2d3'
+        });
+        objects.push({
+          id: 'spring_coil', name: '弹簧', type: 'cylinder',
+          position: [-3 + (doAmp + 1.5) / 2, 1, 0], rotation: [0, 0, Math.PI / 2], scale: [0.1, (doAmp + 1.5) / 2, 0.1],
+          color: '#ffeaa7'
+        });
+        break;
+      }
+
+      case 'lorentz_force': {
+        // 洛伦兹力 — 带电粒子在磁场中圆周运动
+        const lfVelM = text.match(/(\d+(?:\.\d+)?)\s*m\/s/);
+        const lfBM = text.match(/(\d+(?:\.\d+)?)\s*T\b/);
+        const lfChargeM = text.match(/电荷量\s*(?:为)?\s*(\d+(?:\.\d+)?)\s*C/);
+        const lfMassM = text.match(/质量\s*(?:为)?\s*(\d+(?:\.\d+)?)\s*kg/);
+        const lfVel = lfVelM ? Number(lfVelM[1]) : 5;
+        const lfMass = lfMassM ? Number(lfMassM[1]) : 1;
+        objects.push({
+          id: 'particle', name: '带电粒子', type: 'sphere',
+          position: [3, 3, 0], rotation: [0, 0, 0], scale: [0.35, 0.35, 0.35],
+          mass: lfMass, velocity: [0, 0, lfVel], charge: lfChargeM ? Number(lfChargeM[1]) : 1, color: '#ee5a6f'
+        });
+        objects.push({
+          id: 'field_indicator', name: '磁场区', type: 'cylinder',
+          position: [0, 3, 0], rotation: [0, 0, 0], scale: [5, 0.05, 5],
+          color: 'rgba(100,150,255,0.15)'
+        });
+        break;
+      }
+
+      case 'rc_circuit': {
+        // RC电路 — 电阻+电容+电源充电
+        objects.push({
+          id: 'battery', name: '电源', type: 'cube',
+          position: [-3, 2, 0], rotation: [0, 0, 0], scale: [0.5, 0.8, 0.3],
+          color: '#e17055'
+        });
+        objects.push({
+          id: 'resistor', name: '电阻', type: 'cylinder',
+          position: [0, 3, 0], rotation: [0, 0, Math.PI / 2], scale: [0.15, 1.5, 0.15],
+          color: '#fdcb6e'
+        });
+        objects.push({
+          id: 'capacitor', name: '电容', type: 'cube',
+          position: [3, 2, 0], rotation: [0, 0, 0], scale: [0.2, 1.2, 0.8],
+          color: '#48dbfb'
+        });
+        objects.push({
+          id: 'wire_1', name: '导线', type: 'cylinder',
+          position: [-1.5, 2.5, 0], rotation: [0, 0, Math.PI / 2], scale: [0.05, 1.5, 0.05],
+          color: '#a0b0c0'
+        });
+        objects.push({
+          id: 'wire_2', name: '导线', type: 'cylinder',
+          position: [1.5, 2.5, 0], rotation: [0, 0, Math.PI / 2], scale: [0.05, 1.5, 0.05],
+          color: '#a0b0c0'
+        });
+        break;
+      }
+
+      case 'light_refraction': {
+        // 光的折射 — 光线从空气进入水
+        objects.push({
+          id: 'air_medium', name: '空气介质', type: 'plane',
+          position: [0, 3, 0], rotation: [0, 0, 0], scale: [10, 0.05, 5],
+          color: 'rgba(200,230,255,0.2)'
+        });
+        objects.push({
+          id: 'water_medium', name: '水介质', type: 'plane',
+          position: [0, 1, 0], rotation: [0, 0, 0], scale: [10, 2, 5],
+          color: 'rgba(80,150,255,0.3)'
+        });
+        objects.push({
+          id: 'light_ray', name: '光线', type: 'cylinder',
+          position: [-1, 4, 0], rotation: [0, 0, Math.PI / 4], scale: [0.04, 4, 0.04],
+          color: '#ffd700'
+        });
+        objects.push({
+          id: 'normal_line', name: '法线', type: 'cylinder',
+          position: [0, 3, 0], rotation: [0, 0, 0], scale: [0.02, 4, 0.02],
+          color: '#ffffff'
+        });
+        break;
+      }
+
+      case 'isothermal_expansion': {
+        // 等温膨胀 — 气缸+活塞
+        objects.push({
+          id: 'cylinder', name: '气缸', type: 'cylinder',
+          position: [0, 2, 0], rotation: [0, 0, Math.PI / 2], scale: [0.8, 4, 0.8],
+          color: '#636e72'
+        });
+        objects.push({
+          id: 'piston', name: '活塞', type: 'cube',
+          position: [-1, 2, 0], rotation: [0, 0, 0], scale: [0.3, 1.4, 1.4],
+          color: '#ff9ff3'
+        });
+        objects.push({
+          id: 'gas', name: '气体', type: 'sphere',
+          position: [1, 2, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
+          color: 'rgba(255,159,243,0.3)'
+        });
+        objects.push({
+          id: 'base', name: '底座', type: 'plane',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [8, 0.1, 4],
+          color: '#1a2a3a'
+        });
+        break;
+      }
+
+      case 'wave_propagation': {
+        // 波的传播 — 横波沿x轴传播
+        objects.push({
+          id: 'wave_source', name: '波源', type: 'sphere',
+          position: [-5, 2, 0], rotation: [0, 0, 0], scale: [0.3, 0.3, 0.3],
+          color: '#1dd1a1'
+        });
+        objects.push({
+          id: 'wave_medium', name: '波介质', type: 'plane',
+          position: [0, 2, 0], rotation: [0, 0, 0], scale: [12, 0.05, 3],
+          color: 'rgba(29,209,161,0.15)'
+        });
+        objects.push({
+          id: 'wave_marker_1', name: '质点1', type: 'sphere',
+          position: [-3, 2, 0], rotation: [0, 0, 0], scale: [0.2, 0.2, 0.2],
+          color: '#1dd1a1'
+        });
+        objects.push({
+          id: 'wave_marker_2', name: '质点2', type: 'sphere',
+          position: [0, 2, 0], rotation: [0, 0, 0], scale: [0.2, 0.2, 0.2],
+          color: '#1dd1a1'
+        });
+        objects.push({
+          id: 'wave_marker_3', name: '质点3', type: 'sphere',
+          position: [3, 2, 0], rotation: [0, 0, 0], scale: [0.2, 0.2, 0.2],
+          color: '#1dd1a1'
+        });
+        break;
+      }
+
+      case 'ballistic_pendulum': {
+        // 冲击摆 — 子弹射入沙袋后摆动
+        const bpBulletM = text.match(/(\d+(?:\.\d+)?)\s*kg/);
+        const bpVelM = text.match(/(\d+(?:\.\d+)?)\s*m\/s/);
+        const bpBulletMass = bpBulletM ? Number(bpBulletM[1]) : 0.01;
+        const bpVel = bpVelM ? Number(bpVelM[1]) : 100;
+        objects.push({
+          id: 'pivot', name: '悬挂点', type: 'sphere',
+          position: [0, 6, 0], rotation: [0, 0, 0], scale: [0.2, 0.2, 0.2],
+          color: '#ffd700'
+        });
+        objects.push({
+          id: 'sandbag', name: '沙袋', type: 'cube',
+          position: [0, 5, 0], rotation: [0, 0, 0], scale: [0.7, 0.7, 0.7],
+          mass: 1, color: '#e17055'
+        });
+        objects.push({
+          id: 'string_l', name: '摆线左', type: 'cylinder',
+          position: [-0.15, 5.5, 0], rotation: [0, 0, 0], scale: [0.02, 1, 0.02],
+          color: '#a0b0c0'
+        });
+        objects.push({
+          id: 'string_r', name: '摆线右', type: 'cylinder',
+          position: [0.15, 5.5, 0], rotation: [0, 0, 0], scale: [0.02, 1, 0.02],
+          color: '#a0b0c0'
+        });
+        objects.push({
+          id: 'bullet', name: '子弹', type: 'sphere',
+          position: [-5, 5, 0], rotation: [0, 0, 0], scale: [0.15, 0.15, 0.15],
+          mass: bpBulletMass, velocity: [bpVel, 0, 0], color: '#fdcb6e'
+        });
+        break;
+      }
+
+      case 'binary_star': {
+        // 双星系统 — 两颗恒星绕共同质心运动
+        const bsM1M = text.match(/(\d+(?:\.\d+)?)\s*kg/);
+        const bsDistM = text.match(/相距\s*(\d+(?:\.\d+)?)\s*m/);
+        const bsM1 = bsM1M ? Number(bsM1M[1]) : 3;
+        const bsDist = bsDistM ? Number(bsDistM[1]) : 4;
+        objects.push({
+          id: 'star_1', name: '恒星A', type: 'sphere',
+          position: [-bsDist / 3, 4, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
+          mass: bsM1, color: '#fdcb6e'
+        });
+        objects.push({
+          id: 'star_2', name: '恒星B', type: 'sphere',
+          position: [bsDist * 2 / 3, 4, 0], rotation: [0, 0, 0], scale: [0.8, 0.8, 0.8],
+          mass: 2, color: '#a29bfe'
+        });
+        objects.push({
+          id: 'center_of_mass', name: '质心', type: 'sphere',
+          position: [0, 4, 0], rotation: [0, 0, 0], scale: [0.15, 0.15, 0.15],
+          color: '#ffffff'
+        });
+        break;
+      }
+
+      case 'elevator_physics': {
+        // 超重失重 — 电梯中的人+秤
+        const epMassM = text.match(/质量\s*(?:为)?\s*(\d+(?:\.\d+)?)\s*kg/);
+        const epAccM = text.match(/加速度\s*(?:为)?\s*(\d+(?:\.\d+)?)\s*m/);
+        const epMass = epMassM ? Number(epMassM[1]) : 1;
+        objects.push({
+          id: 'elevator', name: '电梯', type: 'cube',
+          position: [0, 2, 0], rotation: [0, 0, 0], scale: [3, 4, 3],
+          color: 'rgba(162,155,254,0.2)'
+        });
+        objects.push({
+          id: 'person', name: '人', type: 'cylinder',
+          position: [0, 1.5, 0], rotation: [0, 0, 0], scale: [0.3, 1.2, 0.3],
+          mass: epMass, color: '#a29bfe'
+        });
+        objects.push({
+          id: 'scale', name: '秤', type: 'cube',
+          position: [0, 0.3, 0], rotation: [0, 0, 0], scale: [0.8, 0.1, 0.8],
+          color: '#fdcb6e'
+        });
+        break;
+      }
+
       case 'electromagnetism':
         objects.push({
           id: 'charge_1', name: '电荷', type: 'sphere',
@@ -757,6 +1027,37 @@ export class ParameterExtractorNode extends WorkflowNode {
         break;
       case 'atwood':
         timeEnd = 5;
+        break;
+      // === 新增10个实验场景的时间范围 ===
+      case 'uniform_acceleration':
+        timeEnd = 5;
+        break;
+      case 'damped_oscillation':
+        timeEnd = 10;
+        break;
+      case 'lorentz_force':
+        timeEnd = 8;
+        break;
+      case 'rc_circuit':
+        timeEnd = 6;
+        break;
+      case 'light_refraction':
+        timeEnd = 4;
+        break;
+      case 'isothermal_expansion':
+        timeEnd = 6;
+        break;
+      case 'wave_propagation':
+        timeEnd = 5;
+        break;
+      case 'ballistic_pendulum':
+        timeEnd = 8;
+        break;
+      case 'binary_star':
+        timeEnd = 10;
+        break;
+      case 'elevator_physics':
+        timeEnd = 6;
         break;
       default:
         timeEnd = 10;
@@ -882,6 +1183,17 @@ export class SceneBuilderNode extends WorkflowNode {
       case 'angled_projectile': return { position: [12, 6, 12], target: [5, 3, 0] };
       case 'atwood': return { position: [6, 4, 8], target: [0, 3, 0] };
       case 'orbital': return { position: [12, 8, 12], target: [0, 4, 0] };
+      // === 新增10个实验场景的相机位置 ===
+      case 'uniform_acceleration': return { position: [10, 5, 12], target: [0, 1, 0] };
+      case 'damped_oscillation': return { position: [8, 3, 8], target: [0, 1.5, 0] };
+      case 'lorentz_force': return { position: [10, 6, 10], target: [0, 3, 0] };
+      case 'rc_circuit': return { position: [8, 4, 10], target: [0, 2.5, 0] };
+      case 'light_refraction': return { position: [10, 5, 10], target: [0, 2.5, 0] };
+      case 'isothermal_expansion': return { position: [8, 4, 10], target: [0, 2, 0] };
+      case 'wave_propagation': return { position: [12, 5, 10], target: [0, 2, 0] };
+      case 'ballistic_pendulum': return { position: [8, 5, 10], target: [0, 4, 0] };
+      case 'binary_star': return { position: [14, 8, 14], target: [0, 4, 0] };
+      case 'elevator_physics': return { position: [8, 4, 10], target: [0, 2, 0] };
       default: return { position: [10, 8, 10], target: [0, 0, 0] };
     }
   }
@@ -1249,6 +1561,314 @@ export class PhysicsCalculatorNode extends WorkflowNode {
         break;
       }
 
+      // === 新增10个实验场景的物理计算 ===
+      case 'uniform_acceleration': {
+        // 匀加速直线运动：F = ma, x = x₀ + ½at², v = at
+        const cart = objects.find(o => o.id === 'cart') || objects[0];
+        const mass = cart.mass || 1;
+        const force = 2; // 恒力 2N
+        const a = force / mass; // 加速度
+        const x0 = cart.position[0];
+        const y0 = cart.position[1];
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const x = x0 + 0.5 * a * t * t;
+          const v = a * t;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[cart.id] = { position: [x, y0, 0], velocity: [v, 0, 0] };
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(0);
+          total.push(0.5 * mass * v * v);
+        }
+        break;
+      }
+
+      case 'damped_oscillation': {
+        // 阻尼振动：x = A·e^(-γt)·cos(ω_d·t)
+        const block = objects.find(o => o.id === 'mass_block') || objects[1];
+        const mass = block.mass || 1;
+        const k = 50; // 弹簧系数
+        const gamma = 0.5; // 阻尼系数
+        const x0 = (block.position[0] - (-3)) - 1.5; // 初始振幅（相对于平衡位置）
+        const omega0 = Math.sqrt(k / mass);
+        const omegaD = Math.sqrt(omega0 * omega0 - gamma * gamma);
+        const y0 = block.position[1];
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const envelope = Math.exp(-gamma * t);
+          const x = x0 * envelope * Math.cos(omegaD * t);
+          const v = x0 * envelope * (-gamma * Math.cos(omegaD * t) - omegaD * Math.sin(omegaD * t));
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[block.id] = { position: [-3 + 1.5 + x, y0, 0], velocity: [v, 0, 0] };
+          steps.push({ time: t, objects: stepObj });
+          const pe = 0.5 * k * x * x;
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(pe);
+          total.push(0.5 * mass * v * v + pe);
+        }
+        break;
+      }
+
+      case 'lorentz_force': {
+        // 洛伦兹力：r = mv/(qB), 圆周运动 ω = qB/m
+        const particle = objects.find(o => o.id === 'particle') || objects[0];
+        const mass = particle.mass || 1;
+        const charge = particle.charge || 1;
+        const B = 0.5; // 磁感应强度
+        const v0 = particle.velocity?.[2] || 5;
+        const radius = mass * v0 / (charge * B); // 回旋半径
+        const omega = charge * B / mass; // 回旋频率
+        const cy = particle.position[1];
+        const centerX = particle.position[0] - radius; // 圆心在粒子左侧
+        const centerZ = particle.position[2];
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const angle = omega * t;
+          const x = centerX + radius * Math.cos(angle);
+          const z = centerZ + radius * Math.sin(angle);
+          const vx = -radius * omega * Math.sin(angle);
+          const vz = radius * omega * Math.cos(angle);
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[particle.id] = { position: [x, cy, z], velocity: [vx, 0, vz] };
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0.5 * mass * v0 * v0);
+          potential.push(0);
+          total.push(0.5 * mass * v0 * v0);
+        }
+        break;
+      }
+
+      case 'rc_circuit': {
+        // RC电路充电：V(t) = V₀(1 - e^(-t/RC))
+        const capacitor = objects.find(o => o.id === 'capacitor') || objects[0];
+        const V0 = 5; // 电源电压
+        const R = 10; // 电阻
+        const C = 0.1; // 电容
+        const tau = R * C; // 时间常数
+        const baseY = capacitor.position[1];
+        const baseScale = 0.8;
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const voltage = V0 * (1 - Math.exp(-t / tau));
+          const charge = C * voltage;
+          // 电容板随充电膨胀（视觉效果）
+          const scaleMul = 1 + voltage / V0 * 0.5;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[capacitor.id] = { position: [capacitor.position[0], baseY, 0], velocity: [0, 0, 0] };
+          steps.push({ time: t, objects: stepObj });
+          // 能量：电场能 E = ½CV²
+          const energy = 0.5 * C * voltage * voltage;
+          kinetic.push(0);
+          potential.push(energy);
+          total.push(energy);
+        }
+        break;
+      }
+
+      case 'light_refraction': {
+        // 光的折射：斯涅尔定律 n₁sin(θ₁) = n₂sin(θ₂)
+        const lightRay = objects.find(o => o.id === 'light_ray') || objects[0];
+        const n1 = 1.0; // 空气折射率
+        const n2 = 1.33; // 水折射率
+        const theta1 = 45 * Math.PI / 180; // 入射角
+        const theta2 = Math.asin(n1 * Math.sin(theta1) / n2); // 折射角
+        const interfaceY = 2; // 交界面y坐标
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          // 光线位置动画：沿入射方向移动到交界面，再沿折射方向继续
+          const progress = t / timeRange.end;
+          let x: number, y: number;
+          if (progress < 0.5) {
+            // 入射段
+            const frac = progress / 0.5;
+            x = -3 + frac * 3 * Math.sin(theta1);
+            y = 4 - frac * (4 - interfaceY);
+          } else {
+            // 折射段
+            const frac = (progress - 0.5) / 0.5;
+            x = 0 + frac * 3 * Math.sin(theta2);
+            y = interfaceY - frac * interfaceY;
+          }
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[lightRay.id] = { position: [x, y, 0], velocity: [0, 0, 0] };
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0);
+          potential.push(0);
+          total.push(0);
+        }
+        break;
+      }
+
+      case 'isothermal_expansion': {
+        // 等温膨胀：PV = nRT，活塞外移
+        const piston = objects.find(o => o.id === 'piston') || objects[0];
+        const gas = objects.find(o => o.id === 'gas') || objects[1];
+        const V0 = 1; // 初始体积
+        const V1 = 2; // 最终体积
+        const P0 = 2.4942; // 初始压力（nRT/V0, n=1, R=8.314, T=300K）
+        const x0 = piston.position[0];
+        const y0 = piston.position[1];
+        const gasX0 = gas.position[0];
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const progress = Math.min(1, t / timeRange.end);
+          const V = V0 + (V1 - V0) * progress;
+          const P = P0 * V0 / V; // 等温过程 P₁V₁ = P₂V₂
+          const pistonX = x0 - (V - V0) * 1.5; // 活塞向外移动
+          const gasScale = 1 + (V - V0) * 0.5;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[piston.id] = { position: [pistonX, y0, 0], velocity: [0, 0, 0] };
+          stepObj[gas.id] = { position: [gasX0, y0, 0], velocity: [0, 0, 0] };
+          steps.push({ time: t, objects: stepObj });
+          // 等温过程内能不变（理想气体），但气体对外做功
+          const work = P0 * V0 * Math.log(V / V0);
+          kinetic.push(0);
+          potential.push(work);
+          total.push(work);
+        }
+        break;
+      }
+
+      case 'wave_propagation': {
+        // 波的传播：y = A·sin(ωt - kx)
+        const source = objects.find(o => o.id === 'wave_source') || objects[0];
+        const m1 = objects.find(o => o.id === 'wave_marker_1');
+        const m2 = objects.find(o => o.id === 'wave_marker_2');
+        const m3 = objects.find(o => o.id === 'wave_marker_3');
+        const A = 0.5; // 振幅
+        const freq = 2; // 频率
+        const wavelength = 4; // 波长
+        const omega = 2 * Math.PI * freq; // 角频率
+        const k = 2 * Math.PI / wavelength; // 波数
+        const baseY = 2;
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          // 波源振动
+          const sy = baseY + A * Math.sin(omega * t);
+          stepObj[source.id] = { position: [source.position[0], sy, 0], velocity: [0, A * omega * Math.cos(omega * t), 0] };
+          // 质点振动（相位延迟）
+          if (m1) {
+            const x1 = m1.position[0];
+            const y1 = baseY + A * Math.sin(omega * t - k * (x1 - source.position[0]));
+            stepObj[m1.id] = { position: [x1, y1, 0], velocity: [0, A * omega * Math.cos(omega * t - k * (x1 - source.position[0])), 0] };
+          }
+          if (m2) {
+            const x2 = m2.position[0];
+            const y2 = baseY + A * Math.sin(omega * t - k * (x2 - source.position[0]));
+            stepObj[m2.id] = { position: [x2, y2, 0], velocity: [0, A * omega * Math.cos(omega * t - k * (x2 - source.position[0])), 0] };
+          }
+          if (m3) {
+            const x3 = m3.position[0];
+            const y3 = baseY + A * Math.sin(omega * t - k * (x3 - source.position[0]));
+            stepObj[m3.id] = { position: [x3, y3, 0], velocity: [0, A * omega * Math.cos(omega * t - k * (x3 - source.position[0])), 0] };
+          }
+          steps.push({ time: t, objects: stepObj });
+          // 波的能量：E = ½ρA²ω²（单位体积）
+          const energy = 0.5 * 1 * A * A * omega * omega;
+          kinetic.push(energy * 0.5);
+          potential.push(energy * 0.5);
+          total.push(energy);
+        }
+        break;
+      }
+
+      case 'ballistic_pendulum': {
+        // 冲击摆：阶段1子弹飞行，阶段2完全非弹性碰撞后摆动
+        const bullet = objects.find(o => o.id === 'bullet') || objects[0];
+        const sandbag = objects.find(o => o.id === 'sandbag') || objects[1];
+        const pivot = objects.find(o => o.id === 'pivot');
+        const mBullet = bullet.mass || 0.01;
+        const mBag = sandbag.mass || 1;
+        const vBullet = bullet.velocity?.[0] || 100;
+        // 完全非弹性碰撞后的速度
+        const vAfter = mBullet * vBullet / (mBullet + mBag);
+        const length = 1; // 摆长
+        const omega = Math.sqrt(g / length);
+        const pivotY = pivot?.position[1] || 6;
+        const collisionTime = 0.1; // 子弹飞行时间
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          if (t < collisionTime) {
+            // 阶段1：子弹飞向沙袋
+            const bx = bullet.position[0] + vBullet * t;
+            stepObj[bullet.id] = { position: [bx, bullet.position[1], 0], velocity: [vBullet, 0, 0] };
+            stepObj[sandbag.id] = { position: [sandbag.position[0], sandbag.position[1], 0], velocity: [0, 0, 0] };
+          } else {
+            // 阶段2：碰撞后摆动
+            const dt = t - collisionTime;
+            const theta = (vAfter / length) * (1 / omega) * Math.sin(omega * dt);
+            const bx = pivot?.position[0] + length * Math.sin(theta);
+            const by = pivotY - length * Math.cos(theta);
+            stepObj[sandbag.id] = { position: [bx, by, 0], velocity: [0, 0, 0] };
+            stepObj[bullet.id] = { position: [bx, by, 0], velocity: [0, 0, 0] };
+          }
+          steps.push({ time: t, objects: stepObj });
+          const v = t < collisionTime ? vBullet : vAfter * Math.cos(omega * (t - collisionTime));
+          const mass = t < collisionTime ? mBullet : (mBullet + mBag);
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(0);
+          total.push(0.5 * mass * v * v);
+        }
+        break;
+      }
+
+      case 'binary_star': {
+        // 双星系统：两颗恒星绕共同质心做圆周运动
+        const star1 = objects.find(o => o.id === 'star_1') || objects[0];
+        const star2 = objects.find(o => o.id === 'star_2') || objects[1];
+        const m1 = star1.mass || 3;
+        const m2 = star2.mass || 2;
+        const d = Math.abs(star2.position[0] - star1.position[0]); // 两星距离
+        const r1 = m2 * d / (m1 + m2); // 星1到质心距离
+        const r2 = m1 * d / (m1 + m2); // 星2到质心距离
+        const GM_total = 50; // 简化引力参数
+        const omega = Math.sqrt(GM_total / (d * d * d));
+        const cy = star1.position[1];
+        const comX = star1.position[0] + r1; // 质心x坐标
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const angle = omega * t;
+          const x1 = comX - r1 * Math.cos(angle);
+          const z1 = -r1 * Math.sin(angle);
+          const x2 = comX + r2 * Math.cos(angle);
+          const z2 = r2 * Math.sin(angle);
+          const v1 = r1 * omega;
+          const v2 = r2 * omega;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[star1.id] = { position: [x1, cy, z1], velocity: [v1 * Math.sin(angle), 0, -v1 * Math.cos(angle)] };
+          stepObj[star2.id] = { position: [x2, cy, z2], velocity: [-v2 * Math.sin(angle), 0, v2 * Math.cos(angle)] };
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0.5 * m1 * v1 * v1 + 0.5 * m2 * v2 * v2);
+          potential.push(-GM_total * m1 * m2 / d);
+          total.push(0.5 * m1 * v1 * v1 + 0.5 * m2 * v2 * v2 - GM_total * m1 * m2 / d);
+        }
+        break;
+      }
+
+      case 'elevator_physics': {
+        // 超重失重：电梯加速上升，视重 N = m(g+a)
+        const elevator = objects.find(o => o.id === 'elevator') || objects[0];
+        const person = objects.find(o => o.id === 'person') || objects[1];
+        const scale = objects.find(o => o.id === 'scale') || objects[2];
+        const mass = person.mass || 1;
+        const a = 2; // 电梯加速度
+        const baseY = elevator.position[1];
+        const personY0 = person.position[1];
+        const scaleY0 = scale.position[1];
+        const apparentWeight = mass * (g + a); // 视重
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          // 电梯匀加速上升
+          const dy = 0.5 * a * t * t;
+          const ey = baseY + dy;
+          const py = personY0 + dy;
+          const sy = scaleY0 + dy;
+          const v = a * t;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[elevator.id] = { position: [elevator.position[0], ey, 0], velocity: [0, v, 0] };
+          stepObj[person.id] = { position: [person.position[0], py, 0], velocity: [0, v, 0] };
+          stepObj[scale.id] = { position: [scale.position[0], sy, 0], velocity: [0, v, 0] };
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(mass * g * py);
+          total.push(0.5 * mass * v * v + mass * g * py);
+        }
+        break;
+      }
+
       default: {
         const obj = objects[0];
         const mass = obj.mass || 1;
@@ -1564,6 +2184,153 @@ ${lawsText}
 - 动能：${finalKE} J
 - 引力势能：${initPE} J
 - 总机械能守恒`,
+
+      // === 新增10个实验场景的描述 ===
+      uniform_acceleration: `这是一个匀加速直线运动实验模拟。质量为${obj.mass || 1}kg的小车在恒力作用下从静止开始做匀加速直线运动。
+
+实验过程：
+1. 初始状态：小车静止，初速度为0
+2. 运动过程：小车在恒力F作用下加速运动，加速度 a = F/m
+3. 运动规律：位移 x = ½at²，速度 v = at
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 初始动能：0 J
+- 最大动能：${finalKE} J
+- 外力做功转化为动能`,
+
+      damped_oscillation: `这是一个阻尼振动实验模拟。物体在弹簧弹力和阻尼力共同作用下做衰减振动。
+
+实验过程：
+1. 初始状态：物体偏离平衡位置最大距离处，具有最大弹性势能
+2. 运动过程：振幅按指数规律衰减 x = A·e^(-γt)·cos(ω_d·t)
+3. 最终状态：振幅逐渐趋近于零，机械能转化为热能
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 初始能量：${initPE} J
+- 能量随时间逐渐耗散`,
+
+      lorentz_force: `这是一个洛伦兹力实验模拟。带电粒子在匀强磁场中做圆周运动。
+
+实验过程：
+1. 初始状态：带电粒子以一定速度垂直进入磁场
+2. 运动过程：洛伦兹力提供向心力，粒子做匀速圆周运动
+3. 运动特征：回旋半径 r = mv/(qB)，周期 T = 2πm/(qB)
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 动能：${finalKE} J（保持不变）
+- 洛伦兹力不做功，动能守恒`,
+
+      rc_circuit: `这是一个RC电路充电实验模拟。电阻和电容串联接在电源上充电。
+
+实验过程：
+1. 初始状态：电容电压为0，电路接通瞬间电流最大
+2. 充电过程：电容电压按指数规律上升 V(t) = V₀(1 - e^(-t/RC))
+3. 最终状态：电容电压等于电源电压，电流为零
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 电场能：${finalKE} J
+- 时间常数 τ = RC = 1s`,
+
+      light_refraction: `这是一个光的折射实验模拟。光线从空气射入水中发生折射。
+
+实验过程：
+1. 初始状态：光线以45°入射角从空气射向水面
+2. 折射过程：遵循斯涅尔定律 n₁sin(θ₁) = n₂sin(θ₂)
+3. 折射结果：光线在水中偏折，折射角小于入射角
+
+涉及的物理定律：
+${lawsText}
+
+光路分析：
+- 空气折射率 n₁ = 1.0
+- 水折射率 n₂ = 1.33
+- 入射角 θ₁ = 45°`,
+
+      isothermal_expansion: `这是一个等温膨胀实验模拟。理想气体在恒温下从1L膨胀到2L。
+
+实验过程：
+1. 初始状态：气体体积1L，压力较高
+2. 膨胀过程：温度恒定，遵循 PV = nRT，压力随体积增大而减小
+3. 最终状态：气体体积2L，压力减半
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 气体对外做功：${finalKE} J
+- 等温过程内能不变`,
+
+      wave_propagation: `这是一个波的传播实验模拟。横波沿x轴正方向传播。
+
+实验过程：
+1. 初始状态：波源开始振动，其他质点静止
+2. 传播过程：波形以速度 v = λf 向前传播
+3. 振动特征：各质点做简谐振动 y = A·sin(ωt - kx)
+
+涉及的物理定律：
+${lawsText}
+
+波动参数：
+- 频率 f = 2Hz
+- 波长 λ = 4m
+- 波速 v = 8m/s`,
+
+      ballistic_pendulum: `这是一个冲击摆实验模拟。子弹射入沙袋后一起摆动。
+
+实验过程：
+1. 阶段一：子弹以高速飞向静止的沙袋
+2. 碰撞过程：完全非弹性碰撞，动量守恒 mv = (m+M)v'
+3. 摆动过程：碰撞后系统像单摆一样摆动
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 碰撞前动能：${initKE} J
+- 碰撞中动能损失（转化为内能）
+- 碰撞后摆动遵循机械能守恒`,
+
+      binary_star: `这是一个双星系统实验模拟。两颗恒星绕共同质心做圆周运动。
+
+实验过程：
+1. 初始状态：两颗恒星位于质心两侧
+2. 运动过程：万有引力提供向心力，两星同步绕质心旋转
+3. 运动特征：r₁/r₂ = m₂/m₁，周期相同
+
+涉及的物理定律：
+${lawsText}
+
+能量分析：
+- 系统总动能：${finalKE} J
+- 引力势能：${initPE} J
+- 总机械能守恒`,
+
+      elevator_physics: `这是一个超重失重实验模拟。电梯加速上升时，人对秤的压力大于重力。
+
+实验过程：
+1. 初始状态：电梯静止，秤的示数等于人的重力
+2. 加速过程：电梯向上加速，视重 N = m(g+a) > mg
+3. 运动特征：加速度向上时超重，加速度向下时失重
+
+涉及的物理定律：
+${lawsText}
+
+力学分析：
+- 实际重力：mg = ${(obj.mass || 1) * 9.8}N
+- 视重（超重）：m(g+a) = ${(obj.mass || 1) * (9.8 + 2)}N
+- 超重比例：${(((obj.mass || 1) * (9.8 + 2)) / ((obj.mass || 1) * 9.8) * 100 - 100).toFixed(1)}%`,
 
       electromagnetism: `这是一个电磁学实验模拟。实验展示了电荷间的相互作用和电磁场效应。
 

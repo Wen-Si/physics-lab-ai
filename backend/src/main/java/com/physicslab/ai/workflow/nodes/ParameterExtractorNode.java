@@ -82,6 +82,42 @@ public class ParameterExtractorNode implements WorkflowNode {
      * </ol>
      */
     private String detectSceneType(String input) {
+        // === 电磁学实验 ===
+        if (containsAny(input, "洛伦兹力", "磁场", "带电粒子", "磁感应强度")) {
+            return "lorentz_force";
+        }
+        if (containsAny(input, "RC电路", "电容", "充电", "放电", "电阻电容")) {
+            return "rc_circuit";
+        }
+        // === 光学实验 ===
+        if (containsAny(input, "折射", "入射角", "折射率", "斯涅尔")) {
+            return "light_refraction";
+        }
+        // === 热学实验 ===
+        if (containsAny(input, "等温膨胀", "理想气体", "气体膨胀", "活塞")) {
+            return "isothermal_expansion";
+        }
+        // === 波动实验 ===
+        if (containsAny(input, "波的传播", "横波", "纵波", "波长", "波速")) {
+            return "wave_propagation";
+        }
+        // === 新增力学实验 ===
+        if (containsAny(input, "匀加速", "恒力", "直线加速", "小车加速")) {
+            return "uniform_acceleration";
+        }
+        if (containsAny(input, "阻尼振动", "阻尼", "阻尼系数")) {
+            return "damped_oscillation";
+        }
+        if (containsAny(input, "冲击摆", "子弹射入", "弹道摆")) {
+            return "ballistic_pendulum";
+        }
+        if (containsAny(input, "双星", "双星系统")) {
+            return "binary_star";
+        }
+        if (containsAny(input, "超重", "失重", "电梯", "升降梯")) {
+            return "elevator_physics";
+        }
+        // === 原有10个实验 ===
         // 1. Unambiguous orbital keywords (planet, star, satellite)
         if (containsAny(input, "行星", "恒星", "卫星")) {
             return "orbital";

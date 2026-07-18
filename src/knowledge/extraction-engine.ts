@@ -163,7 +163,12 @@ function extractKeywords(text: string): string[] {
     '斜抛', '圆周', '振动', '简谐', '电荷', '电流', '电压', '电阻', '电场', '磁场',
     '光', '折射', '反射', '透镜', '温度', '热量', '波', '波长', '频率',
     '牛顿', '爱因斯坦', '欧姆', '库仑', '法拉第', '万有引力', '向心力',
-    '滑轮', '阿特伍德', '行星', '轨道', '恒星', '胡克'
+    '滑轮', '阿特伍德', '行星', '轨道', '恒星', '胡克',
+    // 新增实验关键词
+    '匀加速', '恒力', '阻尼', '阻尼振动', '洛伦兹力', '带电粒子', '磁感应强度',
+    'RC电路', '电容', '充电', '放电', '入射角', '折射率', '斯涅尔',
+    '等温膨胀', '理想气体', '活塞', '横波', '纵波', '波速',
+    '冲击摆', '子弹', '双星', '超重', '失重', '电梯'
   ];
 
   // 英文关键词
@@ -174,7 +179,11 @@ function extractKeywords(text: string): string[] {
     'oscillation', 'charge', 'current', 'voltage', 'resistance', 'electric',
     'magnetic', 'light', 'refraction', 'reflection', 'lens', 'temperature',
     'heat', 'wave', 'wavelength', 'frequency', 'newton', 'einstein', 'ohm',
-    'orbital', 'atwood', 'pulley', 'gravitational', 'centripetal', 'hooke'
+    'orbital', 'atwood', 'pulley', 'gravitational', 'centripetal', 'hooke',
+    // 新增实验关键词
+    'uniform acceleration', 'damped', 'lorentz', 'rc circuit', 'capacitor',
+    'snell', 'isothermal', 'wave propagation', 'ballistic', 'binary star',
+    'elevator', 'weightless'
   ];
 
   const lowerText = text.toLowerCase();

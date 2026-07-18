@@ -1110,6 +1110,67 @@ export const EXPERIMENT_KNOWLEDGE_MAP: Record<string, {
     processNodes: ['process_orbital', 'process_circular'],
     laws: ['gravitational_law', 'orbital_velocity', 'centripetal_force', 'energy_conservation'],
     concepts: ['force', 'mass', 'momentum']
+  },
+  // --- 新增10个实验场景的知识映射 ---
+  uniform_acceleration: {
+    primaryNodes: ['free_fall', 'gravity', 'acceleration', 'velocity', 'displacement'],
+    processNodes: ['process_force_action'],
+    laws: ['newton_second', 'energy_conservation'],
+    concepts: ['force', 'mass', 'kinetic_energy']
+  },
+  damped_oscillation: {
+    primaryNodes: ['spring_mass', 'simple_harmonic_motion'],
+    processNodes: ['process_spring', 'process_energy_transfer'],
+    laws: ['hookes_law', 'energy_conservation'],
+    concepts: ['force', 'mass', 'kinetic_energy', 'potential_energy']
+  },
+  lorentz_force: {
+    primaryNodes: ['circular_motion', 'velocity', 'charge', 'magnetic_field'],
+    processNodes: ['process_circular', 'process_force_action'],
+    laws: ['newton_second', 'centripetal_force'],
+    concepts: ['force', 'mass', 'momentum']
+  },
+  rc_circuit: {
+    primaryNodes: ['charge', 'electric_field', 'ohm_law'],
+    processNodes: ['process_force_action'],
+    laws: ['ohm_law'],
+    concepts: ['frequency', 'heat']
+  },
+  light_refraction: {
+    primaryNodes: ['light', 'refraction', 'snell_law'],
+    processNodes: [],
+    laws: ['snell_law'],
+    concepts: ['light', 'refraction']
+  },
+  isothermal_expansion: {
+    primaryNodes: ['temperature', 'heat', 'thermodynamics_first'],
+    processNodes: ['process_energy_transfer'],
+    laws: ['thermodynamics_first', 'energy_conservation'],
+    concepts: ['temperature', 'heat', 'force']
+  },
+  wave_propagation: {
+    primaryNodes: ['wave', 'wavelength', 'frequency'],
+    processNodes: [],
+    laws: ['wave_equation'],
+    concepts: ['wave', 'wavelength', 'frequency', 'velocity', 'displacement']
+  },
+  ballistic_pendulum: {
+    primaryNodes: ['momentum', 'velocity', 'mass', 'pendulum'],
+    processNodes: ['process_collision', 'process_pendulum', 'process_energy_transfer'],
+    laws: ['momentum_conservation', 'energy_conservation'],
+    concepts: ['force', 'kinetic_energy', 'potential_energy']
+  },
+  binary_star: {
+    primaryNodes: ['circular_motion', 'velocity', 'gravity', 'mass'],
+    processNodes: ['process_orbital', 'process_circular'],
+    laws: ['gravitational_law', 'orbital_velocity', 'centripetal_force', 'momentum_conservation'],
+    concepts: ['force', 'momentum']
+  },
+  elevator_physics: {
+    primaryNodes: ['gravity', 'acceleration', 'velocity', 'mass'],
+    processNodes: ['process_force_action'],
+    laws: ['newton_second', 'energy_conservation'],
+    concepts: ['force', 'mass', 'kinetic_energy', 'potential_energy']
   }
 };
 

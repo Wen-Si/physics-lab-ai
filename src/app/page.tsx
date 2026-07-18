@@ -14,7 +14,7 @@ import { callZhipuAI, parseAIResponse, enhancedPhysicsUnderstanding } from '../a
 import { generateExperimentWithAgent, AgentResult, WORKFLOW_NODES, checkAgentHealth, ReActStep, mapKnowledgeWithAgent, KnowledgeMappingResult } from '../api/agent';
 import WorkflowTracker, { WorkflowNodeStatus } from '../components/WorkflowTracker';
 
-// 预设实验模板 — 10种经典力学实验
+// 预设实验模板 — 20种物理实验（力学/电磁/光学/热学/波动）
 const EXPERIMENT_TEMPLATES = [
   { title: '自由落体', icon: '⬇', color: '#ff6b6b', prompt: '一个质量为2kg的小球从10米高处自由落下，不计空气阻力，模拟其下落过程' },
   { title: '单摆运动', icon: '↺', color: '#4ecdc4', prompt: '演示单摆的周期运动，摆长1米，初始角度30度，模拟摆动过程' },
@@ -25,7 +25,18 @@ const EXPERIMENT_TEMPLATES = [
   { title: '弹性碰撞', icon: '◉', color: '#ff6b6b', prompt: '一个1kg的小球以3m/s向右运动，与静止的1kg小球发生弹性碰撞，模拟碰撞过程' },
   { title: '斜抛运动', icon: '⤴', color: '#feca57', prompt: '一个小球以15m/s的初速度、45度仰角抛出，模拟斜抛运动轨迹' },
   { title: '滑轮系统', icon: '⊕', color: '#54a0ff', prompt: '阿特伍德机：2kg和1kg的两个物体通过轻绳跨过定滑轮连接，模拟运动过程' },
-  { title: '行星轨道', icon: '★', color: '#feca57', prompt: '一颗行星绕恒星做匀速圆周运动，轨道半径5m，模拟轨道运动' }
+  { title: '行星轨道', icon: '★', color: '#feca57', prompt: '一颗行星绕恒星做匀速圆周运动，轨道半径5m，模拟轨道运动' },
+  // --- 新增10个实验 ---
+  { title: '匀加速直线', icon: '≫', color: '#5f27cd', prompt: '一辆1kg的小车在2N恒力作用下从静止开始做匀加速直线运动，初速度为0，模拟5秒内的运动过程' },
+  { title: '阻尼振动', icon: '∽', color: '#00d2d3', prompt: '一个1kg的物体连接在弹簧上，弹簧系数50N/m，阻尼系数0.5，从偏离平衡位置0.3m处释放，模拟阻尼振动过程' },
+  { title: '洛伦兹力', icon: '⟂', color: '#ee5a6f', prompt: '一个带电粒子以5m/s速度垂直进入0.5T的匀强磁场，电荷量为1C质量为1kg，模拟其在磁场中的圆周运动' },
+  { title: 'RC电路', icon: '⌁', color: '#48dbfb', prompt: '一个10欧姆电阻和0.1法拉电容串联，接在5V电源上充电，模拟电容电压随时间变化过程' },
+  { title: '光的折射', icon: '◇', color: '#54a0ff', prompt: '一束光线从空气以45度入射角射入水中，空气折射率1.0水的折射率1.33，模拟光的折射现象' },
+  { title: '等温膨胀', icon: '⊙', color: '#ff9ff3', prompt: '1摩尔理想气体在300K恒温下从1L等温膨胀到2L，模拟气体等温膨胀过程' },
+  { title: '波的传播', icon: '~', color: '#1dd1a1', prompt: '一列频率2Hz波长4m振幅0.5m的横波沿x轴正方向传播，模拟波的传播过程' },
+  { title: '冲击摆', icon: '⊥', color: '#e17055', prompt: '一个0.01kg的子弹以100m/s射入1kg的静止沙袋中，沙袋悬挂在1m长的绳上，模拟冲击摆运动' },
+  { title: '双星系统', icon: '∞', color: '#fdcb6e', prompt: '两颗质量分别为3kg和2kg的恒星相距4m，绕共同质心做圆周运动，模拟双星系统运动' },
+  { title: '超重失重', icon: '↕', color: '#a29bfe', prompt: '一个1kg的人站在电梯内的秤上，电梯以2m/s²的加速度向上加速运动，模拟超重现象' }
 ];
 
 // localStorage 工具函数
@@ -510,6 +521,55 @@ export default function Home() {
       const star = objs.find(o => o.id === 'star');
       const r = num(aiParams.orbitRadius ?? aiParams.radius, 5);
       if (star && planet) planet.position = [star.position[0] + r, star.position[1], 0];
+    } else if (sceneType === 'uniform_acceleration') {
+      const cart = objs.find(o => o.id === 'cart');
+      const force = num(aiParams.force, 2);
+      const mass = num(aiParams.mass, 1);
+      if (cart) { cart.mass = mass; (cart as any).appliedForce = force; }
+    } else if (sceneType === 'damped_oscillation') {
+      const block = objs.find(o => o.id === 'mass_block');
+      const amp = num(aiParams.amplitude ?? aiParams.initialOffset, 0.3);
+      const damping = num(aiParams.dampingCoefficient ?? aiParams.damping, 0.5);
+      if (block) { block.position = [amp, 1, 0]; (block as any).damping = damping; }
+    } else if (sceneType === 'lorentz_force') {
+      const particle = objs.find(o => o.id === 'particle');
+      const v = num(aiParams.velocity ?? aiParams.initialVelocity, 5);
+      const b = num(aiParams.magneticField ?? aiParams.fieldStrength, 0.5);
+      const q = num(aiParams.charge, 1);
+      if (particle) { (particle as any).charge = q; (particle as any).velocity = v; (particle as any).fieldB = b; }
+    } else if (sceneType === 'rc_circuit') {
+      // RC电路参数在前端描述中处理，3D对象为电路板
+      const resistor = objs.find(o => o.id === 'resistor');
+      const capacitor = objs.find(o => o.id === 'capacitor');
+      if (resistor) (resistor as any).resistance = num(aiParams.resistance, 10);
+      if (capacitor) (capacitor as any).capacitance = num(aiParams.capacitance, 0.1);
+    } else if (sceneType === 'light_refraction') {
+      const ray = objs.find(o => o.id === 'light_ray');
+      const angle = num(aiParams.incidenceAngle ?? aiParams.angle, 45);
+      if (ray) (ray as any).incidenceAngle = angle;
+    } else if (sceneType === 'isothermal_expansion') {
+      const piston = objs.find(o => o.id === 'piston');
+      const gas = objs.find(o => o.id === 'gas_chamber');
+      if (piston) (piston as any).temperature = num(aiParams.temperature, 300);
+    } else if (sceneType === 'wave_propagation') {
+      const wave = objs.find(o => o.id === 'wave_source');
+      if (wave) { (wave as any).frequency = num(aiParams.frequency, 2); (wave as any).wavelength = num(aiParams.wavelength, 4); (wave as any).amplitude = num(aiParams.amplitude, 0.5); }
+    } else if (sceneType === 'ballistic_pendulum') {
+      const bullet = objs.find(o => o.id === 'bullet');
+      const pendulum = objs.find(o => o.id === 'pendulum_bob');
+      if (bullet) { bullet.mass = num(aiParams.mass ?? aiParams.bulletMass, 0.01); (bullet as any).velocity = num(aiParams.velocity ?? aiParams.initialVelocity, 100); }
+      if (pendulum) pendulum.mass = num(aiParams.mass2 ?? aiParams.pendulumMass, 1);
+    } else if (sceneType === 'binary_star') {
+      const star1 = objs.find(o => o.id === 'star_1');
+      const star2 = objs.find(o => o.id === 'star_2');
+      if (star1) star1.mass = num(aiParams.mass, 3);
+      if (star2) star2.mass = num(aiParams.mass2, 2);
+    } else if (sceneType === 'elevator_physics') {
+      const person = objs.find(o => o.id === 'person');
+      const elevator = objs.find(o => o.id === 'elevator_car');
+      const accel = num(aiParams.acceleration, 2);
+      if (elevator) (elevator as any).acceleration = accel;
+      if (person) person.mass = num(aiParams.mass, 1);
     }
   };
 
@@ -580,7 +640,7 @@ export default function Home() {
             <div className="logo-icon">⚛</div>
             <div className="logo-text">
               <h1>物理实验室 AI</h1>
-              <span>Physics Lab · 12节点工作流 · 10种实验 · 知识图谱</span>
+              <span>Physics Lab · 12节点工作流 · 20种实验 · 知识图谱</span>
             </div>
             {/* 智能体模式徽章：显示当前是 Spring AI 智能体模式还是本地回退模式 */}
             <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: agentMode ? 'rgba(0, 230, 118, 0.15)' : 'rgba(255, 107, 107, 0.15)', color: agentMode ? '#00e676' : '#ff6b6b', border: `1px solid ${agentMode ? 'rgba(0, 230, 118, 0.3)' : 'rgba(255, 107, 107, 0.3)'}` }}>
@@ -798,7 +858,7 @@ export default function Home() {
                       <div className="welcome-features">
                         <div className="feature-item"><span className="feature-icon">📝</span><span>自然语言输入</span></div>
                         <div className="feature-item"><span className="feature-icon">⚙</span><span>12节点工作流</span></div>
-                        <div className="feature-item"><span className="feature-icon">🧪</span><span>10种实验</span></div>
+                        <div className="feature-item"><span className="feature-icon">🧪</span><span>20种实验</span></div>
                         <div className="feature-item"><span className="feature-icon">🎨</span><span>实时3D渲染</span></div>
                         <div className="feature-item"><span className="feature-icon">🧠</span><span>知识图谱</span></div>
                       </div>

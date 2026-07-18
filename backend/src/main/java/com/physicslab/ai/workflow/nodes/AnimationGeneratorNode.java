@@ -34,7 +34,10 @@ public class AnimationGeneratorNode implements WorkflowNode {
         Map<String, Object> animation = new LinkedHashMap<>();
         animation.put("type", animationTypeForScene(sceneType));
         animation.put("loop", "pendulum".equals(sceneType) || "spring".equals(sceneType)
-                || "circular".equals(sceneType) || "orbital".equals(sceneType));
+                || "circular".equals(sceneType) || "orbital".equals(sceneType)
+                || "damped_oscillation".equals(sceneType) || "lorentz_force".equals(sceneType)
+                || "wave_propagation".equals(sceneType) || "binary_star".equals(sceneType)
+                || "rc_circuit".equals(sceneType));
         animation.put("duration", 10);
         animation.put("sceneType", sceneType);
 
@@ -53,6 +56,16 @@ public class AnimationGeneratorNode implements WorkflowNode {
             case "orbital": return "orbit";
             case "collision": return "collide";
             case "atwood": return "pulley";
+            case "uniform_acceleration": return "accelerate";
+            case "damped_oscillation": return "damped_oscillate";
+            case "lorentz_force": return "orbit";
+            case "rc_circuit": return "charge";
+            case "light_refraction": return "refract";
+            case "isothermal_expansion": return "expand";
+            case "wave_propagation": return "wave";
+            case "ballistic_pendulum": return "swing";
+            case "binary_star": return "orbit";
+            case "elevator_physics": return "elevate";
             default: return "custom";
         }
     }
