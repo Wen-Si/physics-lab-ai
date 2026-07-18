@@ -11,7 +11,7 @@ import KnowledgeGraphVisualizer from '../components/KnowledgeGraphVisualizer';
 import { workflowEngine, ExperimentOutput, WorkflowState } from '../workflow/engine';
 import { extractKnowledgeGraph, ExtractionResult, FULL_KNOWLEDGE_GRAPH } from '../knowledge/extraction-engine';
 import { callZhipuAI, parseAIResponse, enhancedPhysicsUnderstanding } from '../api/zhipu';
-import { generateExperimentWithAgent, AgentResult, WORKFLOW_NODES, checkAgentHealth, ReActStep } from '../api/agent';
+import { generateExperimentWithAgent, AgentResult, WORKFLOW_NODES, checkAgentHealth, ReActStep, mapKnowledgeWithAgent, KnowledgeMappingResult } from '../api/agent';
 import WorkflowTracker, { WorkflowNodeStatus } from '../components/WorkflowTracker';
 
 // 预设实验模板 — 10种经典力学实验
@@ -80,6 +80,14 @@ export default function Home() {
   // true = 使用 Spring AI 智能体后端；false = 回退到本地工作流（callZhipuAI）
   const [agentMode, setAgentMode] = useState<boolean>(true);
 
+  // === Agent 2: 知识映射智能体相关状态 ===
+  /** Agent 2 的 ReAct 推理步骤（与 Agent 1 的 reactSteps 分开存储） */
+  const [agent2ReactSteps, setAgent2ReactSteps] = useState<ReActStep[]>([]);
+  /** Agent 2 是否正在执行 */
+  const [agent2Processing, setAgent2Processing] = useState<boolean>(false);
+  /** Agent 2 返回的知识映射结果 */
+  const [agent2Result, setAgent2Result] = useState<KnowledgeMappingResult | null>(null);
+
   const animationRef = useRef<number | null>(null);
 
   // 从 localStorage 恢复状态
@@ -121,6 +129,48 @@ export default function Home() {
       saveToStorage('physics_lab_workflow', workflowState);
     }
   }, [experimentOutput, knowledgeResult, workflowState, mounted]);
+
+  // === Agent 2: 调用知识映射智能体 ===
+  // 在 Agent 1（实验生成）完成后调用，用 AI 分析实验并映射知识图谱
+  const invokeKnowledgeMappingAgent = useCallback(async (
+    sceneType: string | undefined,
+    experimentType: string,
+    physicsLaws: string[],
+    parameters: Record<string, unknown>,
+    description: string,
+  ) => {
+    setAgent2ReactSteps([]);
+    setAgent2Processing(true);
+    setAgent2Result(null);
+
+    try {
+      // 构建知识节点列表发送给后端
+      const knowledgeNodes = FULL_KNOWLEDGE_GRAPH.nodes.map(n => ({
+        id: n.id,
+        name: n.name,
+        type: (n as any).objectType || n.type,
+      }));
+
+      const result = await mapKnowledgeWithAgent({
+        userInput,
+        experimentType,
+        sceneType: sceneType || 'unknown',
+        description,
+        physicsLaws,
+        parameters,
+        knowledgeNodes,
+      }, (step) => {
+        setAgent2ReactSteps(prev => [...prev, step]);
+      });
+
+      setAgent2Result(result);
+    } catch (err) {
+      console.warn('Agent 2 知识映射失败，使用前端规则映射:', err);
+      // 失败时不影响主流程 — 前端已有 extractKnowledgeGraph 的结果
+    } finally {
+      setAgent2Processing(false);
+    }
+  }, [userInput]);
 
   // 本地处理流程（fallback）：使用智谱AI + 本地工作流引擎
   // 当 Spring AI 智能体后端不可用、或调用失败时使用
@@ -229,6 +279,15 @@ export default function Home() {
         );
         setKnowledgeResult(knowledge);
 
+        // Agent 2: 调用知识映射智能体（异步，不阻塞动画播放）
+        invokeKnowledgeMappingAgent(
+          sceneType,
+          state.experimentType || 'mechanics',
+          state.physicsLaws?.map(l => l.name) || [],
+          (state.parameters || {}) as Record<string, unknown>,
+          state.output?.description || '',
+        );
+
         setTimeout(() => setIsPlaying(true), 800);
       } else {
         setError('未能生成实验结果，请尝试其他描述');
@@ -267,6 +326,8 @@ export default function Home() {
     setIsPlaying(false);
     setProcessingStep(0);
     setReactSteps([]);  // 清空上一轮 ReAct 步骤
+    setAgent2ReactSteps([]);  // 清空 Agent 2 步骤
+    setAgent2Result(null);
 
     try {
       // 调用 Spring AI 智能体，流式接收 12 节点执行进度 + ReAct 推理步骤
@@ -338,6 +399,15 @@ export default function Home() {
           sceneType
         );
         setKnowledgeResult(knowledge);
+
+        // Agent 2: 调用知识映射智能体（异步，不阻塞动画播放）
+        invokeKnowledgeMappingAgent(
+          sceneType,
+          state.experimentType || 'mechanics',
+          state.physicsLaws?.map(l => l.name) || [],
+          (state.parameters || {}) as Record<string, unknown>,
+          state.output?.description || '',
+        );
 
         setTimeout(() => setIsPlaying(true), 800);
       } else {
@@ -621,7 +691,7 @@ export default function Home() {
             </section>
           )}
 
-          {/* 工作流执行追踪器：在处理中或已有节点完成时显示 */}
+          {/* 工作流执行追踪器：Agent 1（实验生成智能体） */}
           {(isProcessing || workflowNodes.some(n => n.status === 'completed')) && (
             <WorkflowTracker
               nodes={workflowNodes}
@@ -629,6 +699,63 @@ export default function Home() {
               aiThinkingMessage={aiThinkingMessage}
               reactSteps={reactSteps}
             />
+          )}
+
+          {/* Agent 2: 知识映射智能体 ReAct 推理过程 */}
+          {(agent2Processing || agent2ReactSteps.length > 0 || agent2Result) && (
+            <section className="panel-section">
+              <div className="section-header">
+                <span className="section-icon">🧠</span>
+                <h2>知识映射智能体 {agent2Processing && <span className="spinner" style={{ width: 12, height: 12, display: 'inline-block', marginLeft: 4 }} />}</h2>
+              </div>
+              <div style={{ padding: '8px 0' }}>
+                <div style={{
+                  display: 'inline-block', padding: '2px 8px', marginBottom: 8,
+                  background: agent2Processing ? 'rgba(255, 193, 7, 0.15)' : 'rgba(0, 230, 118, 0.15)',
+                  border: `1px solid ${agent2Processing ? 'rgba(255, 193, 7, 0.3)' : 'rgba(0, 230, 118, 0.3)'}`,
+                  borderRadius: 4, fontSize: 11,
+                  color: agent2Processing ? '#ffc107' : '#00e676',
+                }}>
+                  {agent2Processing ? 'Agent 2 正在分析...' : `Agent 2 完成: ${agent2Result?.mappedNodeIds.length || 0} 个知识点, Top-${agent2Result?.topNodeIds.length || 0}`}
+                </div>
+
+                {agent2ReactSteps.length > 0 && (
+                  <div style={{ marginTop: 8, maxHeight: agent2ReactSteps.length > 4 ? '200px' : 'auto', overflowY: 'auto' }}>
+                    {agent2ReactSteps.map((step, i) => (
+                      <div key={i} style={{
+                        padding: '4px 8px', marginBottom: 4, fontSize: 11,
+                        background: 'rgba(20, 30, 50, 0.6)', borderRadius: 4,
+                        borderLeft: `2px solid ${
+                          step.stepType === 'thought' ? '#6ab0ff' :
+                          step.stepType === 'action' ? '#ffc107' :
+                          step.stepType === 'observation' ? '#ff7043' :
+                          '#00e676'
+                        }`,
+                      }}>
+                        <span style={{ color: '#607080', marginRight: 6 }}>
+                          {step.stepType === 'thought' ? '💭' :
+                           step.stepType === 'action' ? '⚡' :
+                           step.stepType === 'observation' ? '👁' : '✅'}
+                        </span>
+                        <span style={{ color: '#a0b0c0' }}>{step.content.length > 120 ? step.content.substring(0, 120) + '...' : step.content}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {agent2Result?.summary && (
+                  <div style={{
+                    marginTop: 8, padding: '8px 10px', fontSize: 11,
+                    background: 'rgba(0, 230, 118, 0.06)', borderRadius: 6,
+                    border: '1px solid rgba(0, 230, 118, 0.15)',
+                    color: '#a0d0b0', lineHeight: 1.5,
+                  }}>
+                    <strong style={{ color: '#00e676' }}>AI分析摘要: </strong>
+                    {agent2Result.summary}
+                  </div>
+                )}
+              </div>
+            </section>
           )}
         </aside>
 
@@ -706,9 +833,16 @@ export default function Home() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                     <span style={{ fontSize: '14px' }}>🏛️</span>
                     <span style={{ fontSize: '13px', color: '#00e676', fontWeight: 'bold' }}>Palantir 本体论知识图谱</span>
+                    {agent2Result && (
+                      <span style={{
+                        fontSize: '10px', padding: '1px 6px', marginLeft: 'auto',
+                        background: 'rgba(0, 230, 118, 0.15)', borderRadius: 3,
+                        color: '#00e676', border: '1px solid rgba(0, 230, 118, 0.3)',
+                      }}>Agent 2 AI映射</span>
+                    )}
                   </div>
                   <p style={{ fontSize: '12px', color: '#a0b0c0', lineHeight: '1.6', margin: 0 }}>
-                    {knowledgeResult.summary}
+                    {agent2Result?.summary || knowledgeResult.summary}
                   </p>
                   <div style={{ display: 'flex', gap: '12px', marginTop: '8px', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '11px', color: '#6ab0ff' }}>Object: {knowledgeResult.ontologyMetadata.objectCount}</span>
@@ -717,12 +851,21 @@ export default function Home() {
                     {knowledgeResult.sceneType && (
                       <span style={{ fontSize: '11px', color: '#ffd54f' }}>Scene: {knowledgeResult.sceneType}</span>
                     )}
+                    {agent2Result && (
+                      <span style={{ fontSize: '11px', color: '#e040fb' }}>
+                        AI映射: {agent2Result.mappedNodeIds.length} 节点, Top-{agent2Result.topNodeIds.length}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <KnowledgeGraphVisualizer
                   graph={FULL_KNOWLEDGE_GRAPH}
-                  mappedNodeIds={new Set(knowledgeResult.graph.nodes.map(n => n.id))}
-                  topNodeIds={knowledgeResult.topNodeIds}
+                  mappedNodeIds={agent2Result
+                    ? new Set([...agent2Result.mappedNodeIds, ...knowledgeResult.graph.nodes.map(n => n.id)])
+                    : new Set(knowledgeResult.graph.nodes.map(n => n.id))}
+                  topNodeIds={agent2Result?.topNodeIds?.length
+                    ? agent2Result.topNodeIds
+                    : knowledgeResult.topNodeIds}
                   width={750}
                   height={560}
                   title="物理知识图谱"
@@ -829,9 +972,9 @@ export default function Home() {
       {/* 底部状态栏 */}
       <footer className="physics-footer">
         <div className="footer-content">
-          <div className="footer-item"><span>⚙️</span><span>{agentMode ? `智能体: ${workflowNodes.filter(n => n.status === 'completed').length}/12` : `工作流: ${workflowState?.completedNodes.length || 0}/12`}</span></div>
+          <div className="footer-item"><span>⚙️</span><span>{agentMode ? `Agent1: ${workflowNodes.filter(n => n.status === 'completed').length}/12` : `工作流: ${workflowState?.completedNodes.length || 0}/12`}</span></div>
           <div className="footer-item"><span>🎨</span><span>3D: Three.js</span></div>
-          <div className="footer-item"><span>🧠</span><span>知识图谱: {knowledgeResult?.graph.nodes.length || 0} 节点</span></div>
+          <div className="footer-item"><span>🧠</span><span>{agent2Result ? `Agent2: ${agent2Result.mappedNodeIds.length}知识点` : `知识图谱: ${knowledgeResult?.graph.nodes.length || 0} 节点`}</span></div>
           <div className="footer-item"><span>💾</span><span>localStorage 已启用</span></div>
         </div>
       </footer>

@@ -288,3 +288,136 @@ export async function checkAgentHealth(): Promise<boolean> {
     clearTimeout(timeoutId);
   }
 }
+
+// ========================================================================
+//  Agent 2: Knowledge Mapping Agent
+// ========================================================================
+
+/** Agent 2 返回的知识映射结果 */
+export interface KnowledgeMappingResult {
+  mappedNodeIds: string[];
+  topNodeIds: string[];
+  summary: string;
+  keyConcepts: string[];
+  keyFormulas: string[];
+  keyLaws: string[];
+  keyProcesses: string[];
+}
+
+/** Agent 2 请求中的知识节点信息 */
+export interface KnowledgeNodeInfo {
+  id: string;
+  name: string;
+  type: string;
+}
+
+const KNOWLEDGE_MAP_URL = `${BASE_PATH}/api/experiment/knowledge-map/`;
+
+/**
+ * 调用 Agent 2（知识映射智能体），将已生成的物理实验映射到知识图谱。
+ *
+ * @param request        实验元数据 + 知识图谱节点列表
+ * @param onReActStep    ReAct 推理步骤回调
+ * @returns              知识映射结果
+ */
+export async function mapKnowledgeWithAgent(
+  request: {
+    userInput: string;
+    experimentType: string;
+    sceneType: string;
+    description: string;
+    physicsLaws: string[];
+    parameters: Record<string, unknown>;
+    knowledgeNodes: KnowledgeNodeInfo[];
+  },
+  onReActStep: (step: ReActStep) => void,
+): Promise<KnowledgeMappingResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(new Error('Agent 2 timeout')), DEFAULT_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(KNOWLEDGE_MAP_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify(request),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Agent 2 responded with status ${response.status}`);
+    }
+
+    if (!response.body) {
+      throw new Error('Agent 2 response has no body stream');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+
+    let buffer = '';
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const { events, remainder } = parseSSEChunk(buffer);
+      buffer = remainder;
+
+      for (const payload of events) {
+        let event: AgentEvent;
+        try {
+          event = JSON.parse(payload) as AgentEvent;
+        } catch (err) {
+          console.warn('[agent2] Failed to parse SSE event:', payload, err);
+          continue;
+        }
+
+        switch (event.type) {
+          case 'react_step':
+            if (event.reactStepType) {
+              onReActStep({
+                nodeIndex: -1, // Agent 2 uses -1 to distinguish from Agent 1 nodes
+                stepType: event.reactStepType as ReActStep['stepType'],
+                content: event.reactStepContent ?? '',
+                stepNumber: event.reactStepNumber ?? 0,
+              });
+            }
+            break;
+          case 'complete':
+            if (event.output) {
+              return event.output as KnowledgeMappingResult;
+            }
+            // Return minimal result if no output
+            return {
+              mappedNodeIds: [],
+              topNodeIds: [],
+              summary: '知识映射完成（无详细结果）',
+              keyConcepts: [],
+              keyFormulas: [],
+              keyLaws: [],
+              keyProcesses: [],
+            };
+          case 'error':
+            throw new Error(event.message || 'Agent 2 reported an error');
+          default:
+            break;
+        }
+      }
+    }
+
+    throw new Error('Agent 2 stream ended without a complete event');
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('Agent 2 request timeout (60s)');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
