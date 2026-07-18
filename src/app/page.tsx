@@ -201,11 +201,38 @@ export default function Home() {
     setCurrentTime(0);
     setIsPlaying(false);
     setProcessingStep(0);
+    // 重置 12 个工作流节点为 pending，确保本地模式下也能显示工作流可视化
+    setWorkflowNodes(WORKFLOW_NODES.map(n => ({ ...n, status: 'pending' as const })));
+    setActiveNodeIndex(-1);
+    setAiThinkingMessage(null);
+    setReactSteps([]);
+    setAgent2ReactSteps([]);
+    setAgent2Result(null);
+
+    // 本地模式下逐步推进 12 节点工作流，让用户看到与智能体模式一致的节点进度可视化
+    const advanceNode = (index: number, result?: string) => {
+      setActiveNodeIndex(index);
+      setWorkflowNodes(prev =>
+        prev.map(n => {
+          if (n.index === index) return { ...n, status: 'completed' as const, result };
+          // 自动把已跳过的节点标记为 completed，保持视觉连贯
+          if (n.status === 'pending' && n.index < index) return { ...n, status: 'completed' as const };
+          return n;
+        })
+      );
+      setProcessingStep(index + 1);
+    };
 
     try {
-      const progressTimer = setInterval(() => {
-        setProcessingStep(prev => Math.min(prev + 1, 12));
-      }, 150);
+      // 节点 0: 输入解析
+      advanceNode(0);
+      setAiThinkingMessage('正在解析自然语言输入…');
+      await new Promise(r => setTimeout(r, 120));
+
+      // 节点 1: 意图识别
+      advanceNode(1);
+      setAiThinkingMessage('正在识别实验意图…');
+      await new Promise(r => setTimeout(r, 120));
 
       // 步骤 1-2: 借助智谱AI真正"理解"自然语言（而非仅靠关键词匹配）
       // 提取自然语言中的物理参数：实验类型、初始高度、角度、质量、速度等
@@ -226,6 +253,16 @@ export default function Home() {
         // AI 不可用时降级到工作流规则匹配
         console.warn('智谱AI不可用，使用本地规则匹配:', e);
       }
+
+      // 节点 2: 实验分类
+      advanceNode(2);
+      setAiThinkingMessage('正在分类实验类型…');
+      await new Promise(r => setTimeout(r, 120));
+
+      // 节点 3: 参数提取
+      advanceNode(3, aiParams && Object.keys(aiParams).length > 0 ? JSON.stringify(aiParams).slice(0, 100) : undefined);
+      setAiThinkingMessage('正在提取物理参数…');
+      await new Promise(r => setTimeout(r, 120));
 
       // 将 AI 解析出的参数注入到用户输入的上下文里，让工作流节点能"看到"这些参数
       // 这样物体位置、质量、角度等就会按照自然语言中的描述生成
@@ -249,8 +286,23 @@ export default function Home() {
         }
       }
 
+      // 节点 4: 定律匹配
+      advanceNode(4);
+      setAiThinkingMessage('正在匹配物理定律…');
+      await new Promise(r => setTimeout(r, 120));
+
       const state = await workflowEngine.execute(augmentedInput);
       setWorkflowState(state);
+
+      // 节点 5: 场景构建
+      advanceNode(5);
+      setAiThinkingMessage('正在构建3D实验场景…');
+      await new Promise(r => setTimeout(r, 120));
+
+      // 节点 6: 物理计算
+      advanceNode(6);
+      setAiThinkingMessage('正在执行物理计算…');
+      await new Promise(r => setTimeout(r, 120));
 
       // 步骤 3-5: 用 AI 解析结果对工作流输出做增强
       // 让3D实验真正按照自然语言的描述来制作
@@ -278,8 +330,25 @@ export default function Home() {
         }
       }
 
-      clearInterval(progressTimer);
-      setProcessingStep(12);
+      // 节点 7: 模型生成
+      advanceNode(7);
+      setAiThinkingMessage('正在生成3D模型…');
+      await new Promise(r => setTimeout(r, 120));
+
+      // 节点 8: 动画生成
+      advanceNode(8);
+      setAiThinkingMessage('正在生成动画序列…');
+      await new Promise(r => setTimeout(r, 120));
+
+      // 节点 9: 描述生成
+      advanceNode(9, state.output?.description?.slice(0, 80));
+      setAiThinkingMessage('正在生成实验描述…');
+      await new Promise(r => setTimeout(r, 120));
+
+      // 节点 10: 结果验证
+      advanceNode(10);
+      setAiThinkingMessage('正在验证实验结果…');
+      await new Promise(r => setTimeout(r, 120));
 
       if (state.output) {
         setExperimentOutput(state.output);
@@ -307,9 +376,19 @@ export default function Home() {
       } else {
         setError('未能生成实验结果，请尝试其他描述');
       }
+
+      // 节点 11: 输出格式化
+      advanceNode(11);
+      setActiveNodeIndex(-1);
+      setAiThinkingMessage(null);
+      setProcessingStep(12);
     } catch (err) {
       console.error('处理失败:', err);
       setError('处理失败: ' + String(err));
+      // 将当前 running 节点标记为 error，让用户看到失败位置
+      setWorkflowNodes(prev =>
+        prev.map(n => (n.status === 'running' ? { ...n, status: 'error' as const } : n))
+      );
     } finally {
       setTimeout(() => setIsProcessing(false), 400);
     }
