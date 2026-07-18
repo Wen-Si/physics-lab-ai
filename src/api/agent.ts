@@ -391,7 +391,7 @@ export async function mapKnowledgeWithAgent(
             break;
           case 'complete':
             if (event.output) {
-              return event.output as KnowledgeMappingResult;
+              return event.output as unknown as KnowledgeMappingResult;
             }
             // Return minimal result if no output
             return {
