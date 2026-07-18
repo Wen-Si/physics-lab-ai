@@ -14,30 +14,44 @@ import { callZhipuAI, parseAIResponse, enhancedPhysicsUnderstanding } from '../a
 import { generateExperimentWithAgent, AgentResult, WORKFLOW_NODES, checkAgentHealth, ReActStep, mapKnowledgeWithAgent, KnowledgeMappingResult } from '../api/agent';
 import WorkflowTracker, { WorkflowNodeStatus } from '../components/WorkflowTracker';
 
-// 预设实验模板 — 20种物理实验（力学/电磁/光学/热学/波动）
-const EXPERIMENT_TEMPLATES = [
-  { title: '自由落体', icon: '⬇', color: '#ff6b6b', prompt: '一个质量为2kg的小球从10米高处自由落下，不计空气阻力，模拟其下落过程' },
-  { title: '单摆运动', icon: '↺', color: '#4ecdc4', prompt: '演示单摆的周期运动，摆长1米，初始角度30度，模拟摆动过程' },
-  { title: '弹簧振子', icon: '〰', color: '#a29bfe', prompt: '一个质量为1kg的物体连接在弹簧上，弹簧系数为100N/m，从平衡位置偏离0.2m后释放，模拟简谐振动' },
-  { title: '平抛运动', icon: '→', color: '#fd79a8', prompt: '一个小球从5米高处以10m/s的水平速度抛出，模拟其平抛运动轨迹' },
-  { title: '斜面下滑', icon: '◣', color: '#ffeaa7', prompt: '一个1kg的物体在30度角的光滑斜面顶端从静止开始下滑，模拟整个过程' },
-  { title: '圆周运动', icon: '◌', color: '#00d2d3', prompt: '一个1kg的小球在半径3m的水平圆轨道上做匀速圆周运动，模拟其运动过程' },
-  { title: '弹性碰撞', icon: '◉', color: '#ff6b6b', prompt: '一个1kg的小球以3m/s向右运动，与静止的1kg小球发生弹性碰撞，模拟碰撞过程' },
-  { title: '斜抛运动', icon: '⤴', color: '#feca57', prompt: '一个小球以15m/s的初速度、45度仰角抛出，模拟斜抛运动轨迹' },
-  { title: '滑轮系统', icon: '⊕', color: '#54a0ff', prompt: '阿特伍德机：2kg和1kg的两个物体通过轻绳跨过定滑轮连接，模拟运动过程' },
-  { title: '行星轨道', icon: '★', color: '#feca57', prompt: '一颗行星绕恒星做匀速圆周运动，轨道半径5m，模拟轨道运动' },
-  // --- 新增10个实验 ---
-  { title: '匀加速直线', icon: '≫', color: '#5f27cd', prompt: '一辆1kg的小车在2N恒力作用下从静止开始做匀加速直线运动，初速度为0，模拟5秒内的运动过程' },
-  { title: '阻尼振动', icon: '∽', color: '#00d2d3', prompt: '一个1kg的物体连接在弹簧上，弹簧系数50N/m，阻尼系数0.5，从偏离平衡位置0.3m处释放，模拟阻尼振动过程' },
-  { title: '洛伦兹力', icon: '⟂', color: '#ee5a6f', prompt: '一个带电粒子以5m/s速度垂直进入0.5T的匀强磁场，电荷量为1C质量为1kg，模拟其在磁场中的圆周运动' },
-  { title: 'RC电路', icon: '⌁', color: '#48dbfb', prompt: '一个10欧姆电阻和0.1法拉电容串联，接在5V电源上充电，模拟电容电压随时间变化过程' },
-  { title: '光的折射', icon: '◇', color: '#54a0ff', prompt: '一束光线从空气以45度入射角射入水中，空气折射率1.0水的折射率1.33，模拟光的折射现象' },
-  { title: '等温膨胀', icon: '⊙', color: '#ff9ff3', prompt: '1摩尔理想气体在300K恒温下从1L等温膨胀到2L，模拟气体等温膨胀过程' },
-  { title: '波的传播', icon: '~', color: '#1dd1a1', prompt: '一列频率2Hz波长4m振幅0.5m的横波沿x轴正方向传播，模拟波的传播过程' },
-  { title: '冲击摆', icon: '⊥', color: '#e17055', prompt: '一个0.01kg的子弹以100m/s射入1kg的静止沙袋中，沙袋悬挂在1m长的绳上，模拟冲击摆运动' },
-  { title: '双星系统', icon: '∞', color: '#fdcb6e', prompt: '两颗质量分别为3kg和2kg的恒星相距4m，绕共同质心做圆周运动，模拟双星系统运动' },
-  { title: '超重失重', icon: '↕', color: '#a29bfe', prompt: '一个1kg的人站在电梯内的秤上，电梯以2m/s²的加速度向上加速运动，模拟超重现象' }
+// 预设实验模板 — 20种物理实验，按学科分类
+type ExperimentTemplate = {
+  title: string;
+  icon: string;
+  prompt: string;
+  category: '力学' | '电磁' | '光学' | '热学' | '波动';
+};
+
+const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
+  // 力学
+  { title: '自由落体', icon: '⬇', prompt: '一个质量为2kg的小球从10米高处自由落下，不计空气阻力，模拟其下落过程', category: '力学' },
+  { title: '单摆运动', icon: '↺', prompt: '演示单摆的周期运动，摆长1米，初始角度30度，模拟摆动过程', category: '力学' },
+  { title: '弹簧振子', icon: '〰', prompt: '一个质量为1kg的物体连接在弹簧上，弹簧系数为100N/m，从平衡位置偏离0.2m后释放，模拟简谐振动', category: '力学' },
+  { title: '平抛运动', icon: '→', prompt: '一个小球从5米高处以10m/s的水平速度抛出，模拟其平抛运动轨迹', category: '力学' },
+  { title: '斜面下滑', icon: '◣', prompt: '一个1kg的物体在30度角的光滑斜面顶端从静止开始下滑，模拟整个过程', category: '力学' },
+  { title: '圆周运动', icon: '◌', prompt: '一个1kg的小球在半径3m的水平圆轨道上做匀速圆周运动，模拟其运动过程', category: '力学' },
+  { title: '弹性碰撞', icon: '◉', prompt: '一个1kg的小球以3m/s向右运动，与静止的1kg小球发生弹性碰撞，模拟碰撞过程', category: '力学' },
+  { title: '斜抛运动', icon: '⤴', prompt: '一个小球以15m/s的初速度、45度仰角抛出，模拟斜抛运动轨迹', category: '力学' },
+  { title: '滑轮系统', icon: '⊕', prompt: '阿特伍德机：2kg和1kg的两个物体通过轻绳跨过定滑轮连接，模拟运动过程', category: '力学' },
+  { title: '行星轨道', icon: '★', prompt: '一颗行星绕恒星做匀速圆周运动，轨道半径5m，模拟轨道运动', category: '力学' },
+  { title: '匀加速直线', icon: '≫', prompt: '一辆1kg的小车在2N恒力作用下从静止开始做匀加速直线运动，初速度为0，模拟5秒内的运动过程', category: '力学' },
+  { title: '阻尼振动', icon: '∽', prompt: '一个1kg的物体连接在弹簧上，弹簧系数50N/m，阻尼系数0.5，从偏离平衡位置0.3m处释放，模拟阻尼振动过程', category: '力学' },
+  { title: '冲击摆', icon: '⊥', prompt: '一个0.01kg的子弹以100m/s射入1kg的静止沙袋中，沙袋悬挂在1m长的绳上，模拟冲击摆运动', category: '力学' },
+  { title: '双星系统', icon: '∞', prompt: '两颗质量分别为3kg和2kg的恒星相距4m，绕共同质心做圆周运动，模拟双星系统运动', category: '力学' },
+  { title: '超重失重', icon: '↕', prompt: '一个1kg的人站在电梯内的秤上，电梯以2m/s²的加速度向上加速运动，模拟超重现象', category: '力学' },
+  // 电磁
+  { title: '洛伦兹力', icon: '⟂', prompt: '一个带电粒子以5m/s速度垂直进入0.5T的匀强磁场，电荷量为1C质量为1kg，模拟其在磁场中的圆周运动', category: '电磁' },
+  { title: 'RC电路', icon: '⌁', prompt: '一个10欧姆电阻和0.1法拉电容串联，接在5V电源上充电，模拟电容电压随时间变化过程', category: '电磁' },
+  // 光学
+  { title: '光的折射', icon: '◇', prompt: '一束光线从空气以45度入射角射入水中，空气折射率1.0水的折射率1.33，模拟光的折射现象', category: '光学' },
+  // 热学
+  { title: '等温膨胀', icon: '⊙', prompt: '1摩尔理想气体在300K恒温下从1L等温膨胀到2L，模拟气体等温膨胀过程', category: '热学' },
+  // 波动
+  { title: '波的传播', icon: '~', prompt: '一列频率2Hz波长4m振幅0.5m的横波沿x轴正方向传播，模拟波的传播过程', category: '波动' },
 ];
+
+// 按学科分组
+const TEMPLATE_CATEGORIES = ['力学', '电磁', '光学', '热学', '波动'] as const;
 
 // localStorage 工具函数
 function loadFromStorage<T>(key: string, defaultValue: T): T {
@@ -56,16 +70,6 @@ function saveToStorage<T>(key: string, value: T): void {
   } catch { /* ignore */ }
 }
 
-// 处理中遮罩层样式（与 .processing-overlay 一致，使用内联样式以便动态内容渲染）
-const overlayStyle: React.CSSProperties = {
-  position: 'absolute',
-  inset: 0,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: 'rgba(5, 8, 16, 0.92)',
-  zIndex: 10,
-};
 
 export default function Home() {
   const [userInput, setUserInput] = useState('');
@@ -640,25 +644,20 @@ export default function Home() {
             <div className="logo-icon">⚛</div>
             <div className="logo-text">
               <h1>物理实验室 AI</h1>
-              <span>Physics Lab · 12节点工作流 · 20种实验 · 知识图谱</span>
+              <span>PRECISION PHYSICS · 20 EXPERIMENTS</span>
             </div>
-            {/* 智能体模式徽章：显示当前是 Spring AI 智能体模式还是本地回退模式 */}
-            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: agentMode ? 'rgba(0, 230, 118, 0.15)' : 'rgba(255, 107, 107, 0.15)', color: agentMode ? '#00e676' : '#ff6b6b', border: `1px solid ${agentMode ? 'rgba(0, 230, 118, 0.3)' : 'rgba(255, 107, 107, 0.3)'}` }}>
-              {agentMode ? '🤖 GLM-4.5-flash ReAct' : '📱 本地模式'}
+            <span className={`agent-badge ${agentMode ? 'online' : 'offline'}`}>
+              {agentMode ? 'GLM-4.5 ReAct' : '本地模式'}
             </span>
           </div>
           <div className="header-info">
             <div className="info-item">
-              <span className="info-label">工作流节点</span>
+              <span className="info-label">NODES</span>
               <span className="info-value">12</span>
             </div>
             <div className="info-item">
-              <span className="info-label">知识图谱</span>
+              <span className="info-label">GRAPH</span>
               <span className="info-value active">60+</span>
-            </div>
-            <div className="info-item">
-              <span className="info-label">数据持久化</span>
-              <span className="info-value active">localStorage</span>
             </div>
           </div>
         </div>
@@ -683,22 +682,26 @@ export default function Home() {
               className="input-textarea"
             />
 
-            {/* 预设实验 */}
+            {/* 预设实验 — 按学科分类 */}
             <div className="templates-grid">
-              <h3>快速实验</h3>
-              <div className="templates-row">
-                {EXPERIMENT_TEMPLATES.map((t, i) => (
-                  <button
-                    key={i}
-                    className="template-card"
-                    data-prompt={t.prompt}
-                    onClick={() => handleTemplateClick(t.prompt)}
-                  >
-                    <span className="template-icon">{t.icon}</span>
-                    <span className="template-title">{t.title}</span>
-                  </button>
-                ))}
-              </div>
+              {TEMPLATE_CATEGORIES.map(cat => (
+                <div key={cat} className="templates-category">
+                  <h3>{cat}</h3>
+                  <div className="templates-row">
+                    {EXPERIMENT_TEMPLATES.filter(t => t.category === cat).map((t, i) => (
+                      <button
+                        key={`${cat}-${i}`}
+                        className="template-card"
+                        data-prompt={t.prompt}
+                        onClick={() => handleTemplateClick(t.prompt)}
+                      >
+                        <span className="template-icon">{t.icon}</span>
+                        <span className="template-title">{t.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
 
             {/* 开始按钮 */}
@@ -853,28 +856,27 @@ export default function Home() {
                   <div className="welcome-overlay">
                     <div className="welcome-content">
                       <div className="welcome-icon">⚛</div>
-                      <h2>欢迎来到物理实验室</h2>
-                      <p>在左侧输入实验描述，或选择快速实验模板，然后点击"开始模拟"按钮</p>
+                      <h2>物理实验室</h2>
+                      <p>输入实验描述或选择模板，开始3D物理仿真</p>
                       <div className="welcome-features">
-                        <div className="feature-item"><span className="feature-icon">📝</span><span>自然语言输入</span></div>
                         <div className="feature-item"><span className="feature-icon">⚙</span><span>12节点工作流</span></div>
                         <div className="feature-item"><span className="feature-icon">🧪</span><span>20种实验</span></div>
-                        <div className="feature-item"><span className="feature-icon">🎨</span><span>实时3D渲染</span></div>
+                        <div className="feature-item"><span className="feature-icon">🎨</span><span>3D渲染</span></div>
                         <div className="feature-item"><span className="feature-icon">🧠</span><span>知识图谱</span></div>
                       </div>
                     </div>
                   </div>
                 )}
                 {isProcessing && (
-                  <div style={overlayStyle}>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚛</div>
-                      <div style={{ color: '#6ab0ff', fontSize: '16px', marginBottom: '8px' }}>
-                        {activeNodeIndex >= 0 ? `正在执行: ${WORKFLOW_NODES[activeNodeIndex]?.name}` : '正在启动智能体...'}
+                  <div className="processing-overlay">
+                    <div className="processing-animation">
+                      <div className="atom">
+                        <div className="nucleus"></div>
+                        <div className="electron e1"></div>
+                        <div className="electron e2"></div>
+                        <div className="electron e3"></div>
                       </div>
-                      {aiThinkingMessage && (
-                        <div style={{ color: '#708090', fontSize: '13px' }}>{aiThinkingMessage}</div>
-                      )}
+                      <p>{activeNodeIndex >= 0 ? `正在执行: ${WORKFLOW_NODES[activeNodeIndex]?.name}` : '正在启动智能体...'}</p>
                     </div>
                   </div>
                 )}
@@ -1032,10 +1034,10 @@ export default function Home() {
       {/* 底部状态栏 */}
       <footer className="physics-footer">
         <div className="footer-content">
-          <div className="footer-item"><span>⚙️</span><span>{agentMode ? `Agent1: ${workflowNodes.filter(n => n.status === 'completed').length}/12` : `工作流: ${workflowState?.completedNodes.length || 0}/12`}</span></div>
-          <div className="footer-item"><span>🎨</span><span>3D: Three.js</span></div>
-          <div className="footer-item"><span>🧠</span><span>{agent2Result ? `Agent2: ${agent2Result.mappedNodeIds.length}知识点` : `知识图谱: ${knowledgeResult?.graph.nodes.length || 0} 节点`}</span></div>
-          <div className="footer-item"><span>💾</span><span>localStorage 已启用</span></div>
+          <div className="footer-item"><span className="footer-icon">⚙</span><span>Agent1: {agentMode ? `${workflowNodes.filter(n => n.status === 'completed').length}/12` : `${workflowState?.completedNodes.length || 0}/12`}</span></div>
+          <div className="footer-item"><span className="footer-icon">🎨</span><span>Three.js</span></div>
+          <div className="footer-item"><span className="footer-icon">🧠</span><span>{agent2Result ? `Agent2: ${agent2Result.mappedNodeIds.length}知识点` : `知识图谱: ${knowledgeResult?.graph.nodes.length || 0}节点`}</span></div>
+          <div className="footer-item"><span className="footer-icon">💾</span><span>localStorage</span></div>
         </div>
       </footer>
     </div>
