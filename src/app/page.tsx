@@ -603,7 +603,16 @@ export default function Home() {
       const planet = objs.find(o => o.id === 'planet');
       const star = objs.find(o => o.id === 'star');
       const r = num(aiParams.orbitRadius ?? aiParams.radius, 5);
-      if (star && planet) planet.position = [star.position[0] + r, star.position[1], 0];
+      if (star && planet) {
+        // 保留引擎可能已正确设置的真实半径（含 km 转换）
+        const existingReal = (planet as any).metadata?.realRadius as number | undefined;
+        // 如果引擎已设置 realRadius 且与 AI 参数不一致，优先使用引擎的值（引擎支持 km 单位转换）
+        const realRadius = existingReal && existingReal > r ? existingReal : r;
+        // 当半径过大（如 km 单位）时，使用对数缩放到 3D 可视化范围
+        const visR = realRadius > 20 ? 5 + Math.log10(realRadius / 20) * 2 : Math.max(3, Math.min(8, realRadius));
+        (planet as any).metadata = { realRadius, displayRadius: visR };
+        planet.position = [star.position[0] + visR, star.position[1], 0];
+      }
     } else if (sceneType === 'uniform_acceleration') {
       const cart = objs.find(o => o.id === 'cart');
       const force = num(aiParams.force, 2);

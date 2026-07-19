@@ -99,6 +99,7 @@ export interface PhysicsObject {
   charge?: number;
   color?: string;
   material?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface EnvironmentConfig {
@@ -692,7 +693,24 @@ export class ParameterExtractorNode extends WorkflowNode {
 
       case 'orbital': {
         // 行星轨道运动 — 行星绕恒星做圆周运动
-        const orbitRadius = numbers[0] || 5;
+        // 支持 km/m/cm 单位，统一转换为 m 用于物理计算；3D 可视化时缩放到合理范围
+        const orbitalRadiusMatch = text.match(/(?:轨道半径|半径)\s*(?:为|是|=|:|：)?\s*(\d+(?:\.\d+)?)\s*(km|公里|千米|m|米|cm|mm)?/);
+        let orbitalRadiusReal = 5; // 真实物理半径（m）
+        if (orbitalRadiusMatch) {
+          orbitalRadiusReal = Number(orbitalRadiusMatch[1]);
+          const unit = orbitalRadiusMatch[2] || 'm';
+          switch (unit) {
+            case 'km': case '公里': case '千米': orbitalRadiusReal *= 1000; break;
+            case 'cm': orbitalRadiusReal /= 100; break;
+            case 'mm': orbitalRadiusReal /= 1000; break;
+          }
+        } else {
+          orbitalRadiusReal = numbers[0] || 5;
+        }
+        // 3D 可视化缩放：将真实半径映射到 3-8 范围内，保持视觉合理
+        const orbitalRadiusVis = orbitalRadiusReal > 20
+          ? 5 + Math.log10(orbitalRadiusReal / 20) * 2 // 对数缩放
+          : Math.max(3, Math.min(8, orbitalRadiusReal));
         objects.push({
           id: 'star', name: '恒星', type: 'sphere',
           position: [0, 4, 0], rotation: [0, 0, 0], scale: [1.2, 1.2, 1.2],
@@ -700,8 +718,10 @@ export class ParameterExtractorNode extends WorkflowNode {
         });
         objects.push({
           id: 'planet', name: '行星', type: 'sphere',
-          position: [orbitRadius, 4, 0], rotation: [0, 0, 0], scale: [0.5, 0.5, 0.5],
-          mass: 1, color: '#54a0ff'
+          position: [orbitalRadiusVis, 4, 0], rotation: [0, 0, 0], scale: [0.5, 0.5, 0.5],
+          mass: 1, color: '#54a0ff',
+          // 在 metadata 中保存真实物理半径，供计算使用
+          metadata: { realRadius: orbitalRadiusReal, displayRadius: orbitalRadiusVis }
         });
         break;
       }
@@ -1084,8 +1104,9 @@ export class PhysicsLawMatcherNode extends WorkflowNode {
     try {
       const { experimentType, parameters } = state;
       if (!experimentType || !parameters) throw new Error('缺少必要信息');
-      
-      const physicsLaws = this.matchLaws(experimentType, parameters);
+
+      const sceneType = (parameters.initialConditions as any)?.sceneType || 'freefall';
+      const physicsLaws = this.matchLaws(experimentType, sceneType, parameters);
       
       return this.transitionTo({
         ...state,
@@ -1096,15 +1117,96 @@ export class PhysicsLawMatcherNode extends WorkflowNode {
     }
   }
   
-  private matchLaws(experimentType: ExperimentType, _parameters: PhysicsParameters): PhysicsLaw[] {
+  private matchLaws(experimentType: ExperimentType, sceneType: string, _parameters: PhysicsParameters): PhysicsLaw[] {
+    // 按场景类型匹配定律（更精确），回退到按实验类型匹配
+    const sceneLaws: Record<string, PhysicsLaw[]> = {
+      freefall: [
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] },
+        { name: '自由落体运动', formula: 'h = ½gt²', description: '物体在重力作用下的运动', applicableObjects: ['sphere'] },
+        { name: '能量守恒定律', formula: 'E = KE + PE', description: '系统总能量保持不变', applicableObjects: ['all'] }
+      ],
+      pendulum: [
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] },
+        { name: '能量守恒定律', formula: 'E = KE + PE', description: '系统总能量保持不变', applicableObjects: ['all'] }
+      ],
+      spring: [
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] },
+        { name: '胡克定律', formula: 'F = -kx', description: '弹簧弹力与位移成正比', applicableObjects: ['spring'] },
+        { name: '能量守恒定律', formula: 'E = KE + PE', description: '系统总能量保持不变', applicableObjects: ['all'] }
+      ],
+      projectile: [
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] },
+        { name: '抛体运动', formula: 'x = v₀t, y = h - ½gt²', description: '水平匀速、竖直匀加速的运动', applicableObjects: ['sphere'] }
+      ],
+      angled_projectile: [
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] },
+        { name: '抛体运动', formula: 'x = v₀cosθ·t, y = v₀sinθ·t - ½gt²', description: '斜抛运动轨迹', applicableObjects: ['sphere'] }
+      ],
+      ramp: [
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] }
+      ],
+      circular: [
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] },
+        { name: '向心力公式', formula: 'F = mv²/r', description: '匀速圆周运动所需的向心力', applicableObjects: ['sphere'] }
+      ],
+      collision: [
+        { name: '动量守恒定律', formula: 'm₁v₁ + m₂v₂ = m₁v₁\' + m₂v₂\'', description: '系统总动量保持不变', applicableObjects: ['sphere', 'cube'] },
+        { name: '能量守恒定律', formula: 'E = KE + PE', description: '系统总能量保持不变', applicableObjects: ['all'] }
+      ],
+      atwood: [
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] }
+      ],
+      orbital: [
+        { name: '万有引力定律', formula: 'F = GMm/r²', description: '两物体间的引力与质量乘积成正比，与距离平方成反比', applicableObjects: ['sphere'] },
+        { name: '向心力公式', formula: 'F = mv²/r', description: '匀速圆周运动所需的向心力', applicableObjects: ['sphere'] },
+        { name: '能量守恒定律', formula: 'E = KE + PE', description: '系统总能量保持不变', applicableObjects: ['all'] }
+      ],
+      uniform_acceleration: [
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] }
+      ],
+      damped_oscillation: [
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] },
+        { name: '胡克定律', formula: 'F = -kx', description: '弹簧弹力与位移成正比', applicableObjects: ['spring'] },
+        { name: '能量守恒定律', formula: 'E = KE + PE', description: '系统总能量保持不变', applicableObjects: ['all'] }
+      ],
+      ballistic_pendulum: [
+        { name: '动量守恒定律', formula: 'm₁v₁ + m₂v₂ = m₁v₁\' + m₂v₂\'', description: '系统总动量保持不变', applicableObjects: ['sphere', 'cube'] },
+        { name: '能量守恒定律', formula: 'E = KE + PE', description: '系统总能量保持不变', applicableObjects: ['all'] }
+      ],
+      binary_star: [
+        { name: '万有引力定律', formula: 'F = GMm/r²', description: '两物体间的引力与质量乘积成正比，与距离平方成反比', applicableObjects: ['sphere'] },
+        { name: '向心力公式', formula: 'F = mv²/r', description: '匀速圆周运动所需的向心力', applicableObjects: ['sphere'] }
+      ],
+      elevator_physics: [
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] }
+      ],
+      lorentz_force: [
+        { name: '洛伦兹力公式', formula: 'F = qvB', description: '磁场对运动电荷的作用力', applicableObjects: ['particle'] }
+      ],
+      rc_circuit: [
+        { name: '欧姆定律', formula: 'V = IR', description: '电压、电流与电阻的关系', applicableObjects: ['circuit'] },
+        { name: 'RC充电公式', formula: 'V_C(t) = V(1 - e^(-t/RC))', description: '电容充电过程', applicableObjects: ['circuit'] }
+      ],
+      light_refraction: [
+        { name: '斯涅尔定律', formula: 'n₁sinθ₁ = n₂sinθ₂', description: '光的折射定律', applicableObjects: ['lens'] }
+      ],
+      isothermal_expansion: [
+        { name: '理想气体状态方程', formula: 'PV = nRT', description: '气体状态变化规律', applicableObjects: ['all'] }
+      ],
+      wave_propagation: [
+        { name: '波动方程', formula: 'y = A sin(kx - ωt)', description: '波的传播规律', applicableObjects: ['all'] }
+      ],
+    };
+
+    if (sceneLaws[sceneType]) {
+      return sceneLaws[sceneType];
+    }
+
+    // 回退：按实验类型匹配
     const laws: Record<ExperimentType, PhysicsLaw[]> = {
       mechanics: [
         { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比，与质量成反比', applicableObjects: ['all'] },
-        { name: '自由落体运动', formula: 'h = ½gt²', description: '物体在重力作用下的运动', applicableObjects: ['sphere'] },
-        { name: '动量守恒定律', formula: 'm₁v₁ + m₂v₂ = m₁v₁\' + m₂v₂\'', description: '系统总动量保持不变', applicableObjects: ['sphere', 'cube'] },
-        { name: '能量守恒定律', formula: 'E = KE + PE', description: '系统总能量保持不变', applicableObjects: ['all'] },
-        { name: '万有引力定律', formula: 'F = GMm/r²', description: '两物体间的引力与质量乘积成正比，与距离平方成反比', applicableObjects: ['sphere'] },
-        { name: '向心力公式', formula: 'F = mv²/r', description: '匀速圆周运动所需的向心力', applicableObjects: ['sphere'] }
+        { name: '能量守恒定律', formula: 'E = KE + PE', description: '系统总能量保持不变', applicableObjects: ['all'] }
       ],
       electromagnetism: [
         { name: '库仑定律', formula: 'F = kq₁q₂/r²', description: '电荷间的作用力', applicableObjects: ['sphere'] },
@@ -2170,7 +2272,7 @@ ${lawsText}
 - 系统总势能：${initPE} J
 - 能量守恒验证：势能减少等于动能增加`,
 
-      orbital: `这是一个行星轨道运动实验模拟。行星绕恒星做匀速圆周运动，轨道半径${Math.abs((parameters.objects.find(o => o.id === 'planet') || parameters.objects[1]).position[0] - (parameters.objects.find(o => o.id === 'star') || parameters.objects[0]).position[0])}m。
+      orbital: `这是一个行星轨道运动实验模拟。行星绕恒星做匀速圆周运动，轨道半径${(() => { const p = parameters.objects.find(o => o.id === 'planet') || parameters.objects[1]; const real = (p as any)?.metadata?.realRadius; const vis = Math.abs(p.position[0] - (parameters.objects.find(o => o.id === 'star') || parameters.objects[0]).position[0]); if (real && real !== vis) { return real >= 1000 ? `${(real/1000).toFixed(0)}km` : `${real.toFixed(1)}m`; } return `${vis.toFixed(1)}m`; })()}。
 
 实验过程：
 1. 初始状态：行星位于轨道某一点，具有切向速度

@@ -52,13 +52,18 @@ public class ParameterExtractorNode implements WorkflowNode {
                 "(\\d+(?:\\.\\d+)?)\\s*m/s", "(\\d+(?:\\.\\d+)?)\\s*米/秒"));
         putIfFound(aiParams, "length", extractFirst(input,
                 "摆长\\s*(\\d+(?:\\.\\d+)?)\\s*[米m]"));
-        putIfFound(aiParams, "radius", extractFirst(input,
-                "轨道半径\\s*(\\d+(?:\\.\\d+)?)\\s*[米m]",
-                "半径\\s*(\\d+(?:\\.\\d+)?)\\s*[米m]"));
+        // 半径/轨道半径：支持 km、cm、mm、m 多单位，统一转换为 m
+        putIfFound(aiParams, "radius", extractLengthWithUnit(input,
+                "轨道半径\\s*(\\d+(?:\\.\\d+)?)\\s*(km|km|公里|千米|m|米|cm|mm)",
+                "半径\\s*(\\d+(?:\\.\\d+)?)\\s*(km|公里|千米|m|米|cm|mm)"));
         putIfFound(aiParams, "springConstant", extractFirst(input,
                 "弹簧系数\\s*(\\d+(?:\\.\\d+)?)\\s*N/m"));
         putIfFound(aiParams, "amplitude", extractFirst(input,
                 "振幅\\s*(\\d+(?:\\.\\d+)?)\\s*m"));
+        // 高度：也支持 km 单位（如"从10km高处"）
+        putIfFoundConverted(aiParams, "height", extractLengthWithUnit(input,
+                "(?:高度|高处|高)\\s*(\\d+(?:\\.\\d+)?)\\s*(km|公里|千米|m|米|cm|mm)",
+                "(\\d+(?:\\.\\d+)?)\\s*(km|公里|千米)\\s*(?:高|处|的)"));
 
         context.setAiParams(aiParams);
 
@@ -172,8 +177,61 @@ public class ParameterExtractorNode implements WorkflowNode {
         return null;
     }
 
+    /**
+     * Extract a length value with unit (km/m/cm/mm) and convert to meters.
+     * Returns the value in meters as a String, or null if no match.
+     */
+    private String extractLengthWithUnit(String input, String... patterns) {
+        for (String pattern : patterns) {
+            Matcher matcher = Pattern.compile(pattern).matcher(input);
+            if (matcher.find()) {
+                String valueStr = matcher.group(1);
+                String unit = matcher.groupCount() >= 2 ? matcher.group(2) : "m";
+                try {
+                    double value = Double.parseDouble(valueStr);
+                    // Convert to meters
+                    switch (unit) {
+                        case "km": case "公里": case "千米":
+                            value *= 1000;
+                            break;
+                        case "cm":
+                            value /= 100;
+                            break;
+                        case "mm":
+                            value /= 1000;
+                            break;
+                        default: // m, 米 — no conversion
+                            break;
+                    }
+                    // Return as string, preserving integer values without decimal
+                    if (value == Math.floor(value)) {
+                        return String.valueOf((long) value);
+                    }
+                    return String.valueOf(value);
+                } catch (NumberFormatException e) {
+                    return valueStr;
+                }
+            }
+        }
+        return null;
+    }
+
     private void putIfFound(Map<String, Object> params, String key, String value) {
         if (value != null) {
+            try {
+                params.put(key, Double.parseDouble(value));
+            } catch (NumberFormatException e) {
+                params.put(key, value);
+            }
+        }
+    }
+
+    /**
+     * Like putIfFound but only overwrites if the key is not already set
+     * (used for height which may be set by the simple regex first).
+     */
+    private void putIfFoundConverted(Map<String, Object> params, String key, String value) {
+        if (value != null && !params.containsKey(key)) {
             try {
                 params.put(key, Double.parseDouble(value));
             } catch (NumberFormatException e) {
