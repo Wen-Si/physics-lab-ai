@@ -50,6 +50,11 @@ public class OutputFormatterNode implements WorkflowNode {
         }
         result.setAugmentedInput(context.getAugmentedInput());
 
+        // Include 3D model from 混元生3D API (set by Node 7)
+        if (context.getHunyuan3DModel() != null) {
+            result.setHunyuan3DModel(context.getHunyuan3DModel());
+        }
+
         context.setResult(result);
     }
 }

@@ -11,7 +11,7 @@ import KnowledgeGraphVisualizer from '../components/KnowledgeGraphVisualizer';
 import { workflowEngine, ExperimentOutput, WorkflowState } from '../workflow/engine';
 import { extractKnowledgeGraph, ExtractionResult, FULL_KNOWLEDGE_GRAPH } from '../knowledge/extraction-engine';
 import { callZhipuAI, parseAIResponse, enhancedPhysicsUnderstanding } from '../api/zhipu';
-import { generateExperimentWithAgent, AgentResult, WORKFLOW_NODES, checkAgentHealth, ReActStep, mapKnowledgeWithAgent, KnowledgeMappingResult } from '../api/agent';
+import { generateExperimentWithAgent, AgentResult, WORKFLOW_NODES, checkAgentHealth, ReActStep, mapKnowledgeWithAgent, KnowledgeMappingResult, Hunyuan3DModelInfo } from '../api/agent';
 import WorkflowTracker, { WorkflowNodeStatus } from '../components/WorkflowTracker';
 
 // 预设实验模板 — 20种物理实验，按学科分类
@@ -102,6 +102,8 @@ export default function Home() {
   const [agent2Processing, setAgent2Processing] = useState<boolean>(false);
   /** Agent 2 返回的知识映射结果 */
   const [agent2Result, setAgent2Result] = useState<KnowledgeMappingResult | null>(null);
+  /** 混元生3D 模型生成结果 */
+  const [hunyuan3DModel, setHunyuan3DModel] = useState<Hunyuan3DModelInfo | null>(null);
 
   const animationRef = useRef<number | null>(null);
 
@@ -422,6 +424,7 @@ export default function Home() {
     setReactSteps([]);  // 清空上一轮 ReAct 步骤
     setAgent2ReactSteps([]);  // 清空 Agent 2 步骤
     setAgent2Result(null);
+    setHunyuan3DModel(null);  // 清空上一轮3D模型
 
     try {
       // 调用 Spring AI 智能体，流式接收 12 节点执行进度 + ReAct 推理步骤
@@ -462,6 +465,9 @@ export default function Home() {
       const augmentedInput = agentResult.augmentedInput || userInput;
       const state = await workflowEngine.execute(augmentedInput);
       setWorkflowState(state);
+
+      // 保存混元生3D模型信息（用于在结果面板展示预览图和下载链接）
+      setHunyuan3DModel(agentResult.hunyuan3DModel || null);
 
       // 用智能体返回的 aiParams 应用到 3D 场景（复用现有的参数注入逻辑）
       const aiParams = agentResult.aiParams || {};
@@ -1040,6 +1046,59 @@ export default function Home() {
                 </div>
                 <p className="experiment-desc">{experimentOutput.description}</p>
               </section>
+
+              {hunyuan3DModel && (
+                <section className="panel-section">
+                  <div className="section-header">
+                    <span className="section-icon">🎲</span>
+                    <h2>混元生3D模型</h2>
+                  </div>
+                  <div className="hunyuan-3d-result">
+                    {hunyuan3DModel.status === 'DONE' && hunyuan3DModel.modelFiles && hunyuan3DModel.modelFiles.length > 0 ? (
+                      <>
+                        {hunyuan3DModel.modelFiles.map((file, i) => (
+                          file.previewImageUrl && (
+                            <div key={`preview-${i}`} className="hunyuan-preview-wrapper">
+                              <img
+                                src={file.previewImageUrl}
+                                alt={`3D模型预览 ${file.type}`}
+                                className="hunyuan-preview-image"
+                                loading="lazy"
+                              />
+                            </div>
+                          )
+                        ))}
+                        <div className="hunyuan-download-links">
+                          {hunyuan3DModel.modelFiles.map((file, i) => (
+                            <a
+                              key={`dl-${i}`}
+                              href={file.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="hunyuan-download-btn"
+                            >
+                              下载 {file.type} 模型
+                            </a>
+                          ))}
+                        </div>
+                        <p className="hunyuan-prompt-text">生成提示词: {hunyuan3DModel.prompt}</p>
+                      </>
+                    ) : (
+                      <div className="hunyuan-error-info">
+                        <p className="hunyuan-status">
+                          状态: {hunyuan3DModel.status === 'DONE' ? '完成（无模型文件）' : hunyuan3DModel.status}
+                        </p>
+                        {hunyuan3DModel.error && (
+                          <p className="hunyuan-error-msg">{hunyuan3DModel.error}</p>
+                        )}
+                        <p className="hunyuan-fallback-hint">
+                          3D模型生成未成功，已使用默认几何体渲染实验场景。
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
 
               <section className="panel-section">
                 <div className="section-header">

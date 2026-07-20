@@ -129,6 +129,10 @@ public class WorkflowEngine {
         result.setAiParams(context.getAiParams() != null ? context.getAiParams() : Map.of());
         result.setAugmentedInput(context.getAugmentedInput() != null
                 ? context.getAugmentedInput() : (context.getInput() == null ? "" : context.getInput()));
+        // Include 3D model from 混元生3D API if available
+        if (context.getHunyuan3DModel() != null) {
+            result.setHunyuan3DModel(context.getHunyuan3DModel());
+        }
         return result;
     }
 }

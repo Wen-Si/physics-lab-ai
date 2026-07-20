@@ -11,3 +11,13 @@ spring:
           model: glm-4.5-flash
           temperature: 0.7
           max-tokens: 2000
+
+# 腾讯混元生3D (Tencent Hunyuan 3D) API configuration
+# OpenAI-compatible interface for 3D model generation
+hunyuan:
+  3d:
+    api-key: sk-hZWbuBTCaOUzfSx3oTApCQEJmU9eGD0vFa00bm96pzNUPhPU
+    base-url: https://api.ai3d.cloud.tencent.com
+    model-version: "3.0"
+    poll-interval: 10
+    max-poll-time: 300

@@ -24,6 +24,24 @@ export interface AgentResult {
   aiParams: Record<string, any>;
   /** 经过 AI 增强后的用户输入文本（包含参数提示） */
   augmentedInput: string;
+  /** 混元生3D API 生成的3D模型信息 */
+  hunyuan3DModel?: Hunyuan3DModelInfo;
+}
+
+/** 混元生3D 模型文件信息 */
+export interface Hunyuan3DModelFile {
+  type: string;
+  url: string;
+  previewImageUrl?: string;
+}
+
+/** 混元生3D 生成结果 */
+export interface Hunyuan3DModelInfo {
+  jobId: string;
+  status: string;
+  prompt: string;
+  modelFiles: Hunyuan3DModelFile[];
+  error?: string;
 }
 
 /**
@@ -74,7 +92,7 @@ const GENERATE_URL = `${BASE_PATH}/api/experiment/generate/`;
 const HEALTH_URL = `${BASE_PATH}/api/experiment/health/`;
 
 /** 默认请求超时时间（毫秒） */
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 360_000;
 
 /**
  * 12 个工作流节点定义。

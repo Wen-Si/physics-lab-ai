@@ -1,6 +1,7 @@
 package com.physicslab.ai.workflow;
 
 import com.physicslab.ai.model.ExperimentResult;
+import com.physicslab.ai.model.Hunyuan3DResult;
 import com.physicslab.ai.model.WorkflowEvent;
 
 import java.util.ArrayList;
@@ -56,6 +57,9 @@ public class WorkflowContext {
 
     /** Collected (non-fatal) errors during execution. */
     private List<String> errors = new ArrayList<>();
+
+    /** 3D model generation result from 混元生3D API (set by Node 7). */
+    private Hunyuan3DResult hunyuan3DModel;
 
     /** Flag set by Node 6 indicating physics calculations are ready. */
     private boolean calculationsReady;
@@ -215,6 +219,14 @@ public class WorkflowContext {
 
     public void setEventSink(Consumer<WorkflowEvent> eventSink) {
         this.eventSink = eventSink;
+    }
+
+    public Hunyuan3DResult getHunyuan3DModel() {
+        return hunyuan3DModel;
+    }
+
+    public void setHunyuan3DModel(Hunyuan3DResult hunyuan3DModel) {
+        this.hunyuan3DModel = hunyuan3DModel;
     }
 
     public ExperimentResult getResult() {
