@@ -1,38 +1,30 @@
 package com.physicslab.ai.workflow.nodes;
 
 import com.physicslab.ai.agent.PhysicsExperimentAgent;
-import com.physicslab.ai.model.Hunyuan3DResult;
 import com.physicslab.ai.model.WorkflowNodeInfo;
-import com.physicslab.ai.service.Hunyuan3DService;
 import com.physicslab.ai.workflow.WorkflowContext;
 import com.physicslab.ai.workflow.WorkflowNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Node 7 - Model Generator.
+ * Node 7 - Model Generator (ReAct-powered by GLM-4.5-Flash).
  *
- * <p>Generates 3D model metadata AND calls the 腾讯混元生3D (Tencent Hunyuan 3D)
- * API to generate an actual 3D model file from a text prompt. The generated
- * model URLs (OBJ, GLB) are stored on the context for the frontend to
- * optionally load and display.</p>
+ * <p>Uses the ReAct (Reason-Act) paradigm with ZhiPu AI GLM-4.5-flash to
+ * generate 3D model metadata (geometry, material, dimensions) based on the
+ * experiment scene type and user input. The LLM reasons about what 3D
+ * objects are needed, selects an appropriate geometry, and produces a
+ * model descriptor that the frontend renderer uses to build the scene.</p>
  *
- * <p>The node uses ReAct-style reasoning steps to communicate progress:
- * <ol>
- *   <li>Thought: analyzes the experiment and decides what 3D object to generate</li>
- *   <li>Action: calls the Hunyuan3DService with a text prompt</li>
- *   <li>Observation: reports the API result (success/timeout/failure)</li>
- *   <li>Final Answer: summarizes the 3D model generation outcome</li>
- * </ol>
- *
- * <p>If the Hunyuan3D API is unavailable or times out, the node falls back
- * to the original behavior: storing static geometry metadata on the context.
- * The workflow continues regardless of 3D generation success.</p>
+ * <p>The node defines a local action {@code generate_model_metadata} that
+ * maps scene types to geometry descriptors. The LLM can call this action
+ * to get predefined geometry, or reason about custom geometries for
+ * unusual experiments. Falls back to rule-based geometry mapping if the
+ * AI call fails.</p>
  */
 @Component
 public class ModelGeneratorNode implements WorkflowNode {
@@ -40,14 +32,7 @@ public class ModelGeneratorNode implements WorkflowNode {
     private static final Logger log = LoggerFactory.getLogger(ModelGeneratorNode.class);
 
     private static final WorkflowNodeInfo INFO = new WorkflowNodeInfo(
-            7, "model_generator", "模型生成", "调用混元生3D生成3D模型");
-
-    private final Hunyuan3DService hunyuan3DService;
-
-    @Autowired
-    public ModelGeneratorNode(Hunyuan3DService hunyuan3DService) {
-        this.hunyuan3DService = hunyuan3DService;
-    }
+            7, "model_generator", "模型生成", "使用GLM-4.5-Flash生成3D模型几何体和材质数据");
 
     @Override
     public WorkflowNodeInfo getNodeInfo() {
@@ -59,158 +44,132 @@ public class ModelGeneratorNode implements WorkflowNode {
         String sceneType = context.getSceneType() == null ? "freefall" : context.getSceneType();
         String userInput = context.getInput() == null ? "" : context.getInput();
 
-        // Step 1: Generate the 3D model prompt based on scene type
-        String prompt3D = build3DPrompt(sceneType, userInput);
+        // Rule-based geometry (always computed as fallback).
+        String fallbackGeometry = geometryForScene(sceneType);
 
-        int stepNumber = 0;
+        // ReAct-enhanced 3D model generation using GLM-4.5-Flash.
+        context.emitAiThinking(INFO.index(), INFO.name(),
+                "正在使用 ReAct 范式调用 GLM-4.5-Flash 生成3D模型描述...");
 
-        // Thought step
-        stepNumber++;
-        context.emitReActStep(7, "模型生成", "thought",
-                "需要为「" + sceneType + "」实验生成3D模型。将使用混元生3D API，提示词：「" + prompt3D + "」",
-                stepNumber);
+        String modelDescription = fallbackGeometry;
+        String material = "standard";
 
-        // Step 2: Store static geometry metadata (always, as fallback for frontend)
+        try {
+            String finalAnswer = agent.callWithReAct(
+                    userInput,
+                    "根据实验场景类型（" + sceneType + "）和用户输入，生成3D模型的几何体和材质描述。" +
+                    "需要确定使用什么几何体（如sphere, box, spring, cylinder等）和材质（如metal, glass, standard等）" +
+                    "来最好地呈现这个物理实验的3D场景。",
+                    """
+                    - get_geometry: 根据场景类型获取推荐的3D几何体描述（输入为场景类型，返回几何体描述）
+                    - get_material: 根据实验类型获取推荐的材质（输入为场景类型，返回材质描述）
+                    - check_scene: 检查场景类型的有效性（输入为场景类型，返回有效性和说明）
+                    """,
+                    (action, actionInput) -> {
+                        if ("get_geometry".equals(action)) {
+                            String st = actionInput != null ? actionInput.trim() : sceneType;
+                            String geom = geometryForScene(st);
+                            return "场景类型「" + st + "」的推荐几何体: " + geom
+                                    + "。该几何体包含实验所需的所有3D对象。";
+                        }
+                        if ("get_material".equals(action)) {
+                            String st = actionInput != null ? actionInput.trim() : sceneType;
+                            String mat = materialForScene(st);
+                            return "场景类型「" + st + "」的推荐材质: " + mat;
+                        }
+                        if ("check_scene".equals(action)) {
+                            String st = actionInput != null ? actionInput.trim() : "";
+                            if (isValidSceneType(st)) {
+                                return "「" + st + "」是有效的物理实验场景类型";
+                            }
+                            return "「" + st + "」不是标准场景类型，将使用默认几何体: sphere";
+                        }
+                        return "未知动作: " + action;
+                    },
+                    context, INFO.index(), INFO.name());
+
+            if (finalAnswer != null && !finalAnswer.isBlank()) {
+                // Try to extract geometry from the final answer
+                String extracted = extractGeometryFromAnswer(finalAnswer);
+                if (extracted != null) {
+                    modelDescription = extracted;
+                }
+                // Try to extract material
+                String extractedMaterial = extractMaterialFromAnswer(finalAnswer);
+                if (extractedMaterial != null) {
+                    material = extractedMaterial;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("ModelGenerator ReAct enhancement failed, using fallback: {}", e.getMessage());
+            context.getErrors().add("模型生成ReAct增强失败: " + e.getMessage());
+        }
+
+        // Store the model metadata on the context
         Map<String, Object> model = new LinkedHashMap<>();
-        model.put("geometry", geometryForScene(sceneType));
-        model.put("material", "standard");
+        model.put("geometry", modelDescription);
+        model.put("material", material);
         model.put("sceneType", sceneType);
-        model.put("hunyuan3d_prompt", prompt3D);
+        model.put("ai_generated", true);
         context.getParameters().put("model", model);
 
-        // Step 3: Call Hunyuan3D API
-        if (!hunyuan3DService.isConfigured()) {
-            stepNumber++;
-            context.emitReActStep(7, "模型生成", "observation",
-                    "混元生3D API未配置，跳过3D模型生成，使用默认几何体", stepNumber);
-            stepNumber++;
-            context.emitReActStep(7, "模型生成", "final_answer",
-                    "使用默认3D几何体: " + geometryForScene(sceneType), stepNumber);
-            return;
-        }
-
-        // Action step
-        stepNumber++;
-        context.emitReActStep(7, "模型生成", "action",
-                "generate_3d_model[" + prompt3D + "]", stepNumber);
-
-        // Call the API (blocking, may take 30-90 seconds)
-        Hunyuan3DResult result;
-        try {
-            result = hunyuan3DService.generate3DModel(prompt3D);
-        } catch (Exception e) {
-            log.error("Hunyuan3D generation failed for scene {}: {}", sceneType, e.getMessage(), e);
-            result = new Hunyuan3DResult();
-            result.setStatus("ERROR");
-            result.setError(e.getMessage());
-            result.setPrompt(prompt3D);
-        }
-
-        // Observation step
-        stepNumber++;
-        String observation;
-        if ("DONE".equals(result.getStatus())) {
-            int fileCount = result.getModelFiles().size();
-            StringBuilder sb = new StringBuilder();
-            sb.append("3D模型生成成功！共").append(fileCount).append("个文件：");
-            for (Hunyuan3DResult.ModelFile f : result.getModelFiles()) {
-                sb.append(f.getType()).append(" ");
-            }
-            if (result.getPreviewImageUrl() != null) {
-                sb.append("（含预览图）");
-            }
-            observation = sb.toString();
-        } else if ("TIMEOUT".equals(result.getStatus())) {
-            observation = "3D模型生成超时（JobId: " + result.getJobId() + "），使用默认几何体";
-        } else {
-            observation = "3D模型生成失败: " + (result.getError() != null ? result.getError() : "未知错误") + "，使用默认几何体";
-        }
-        context.emitReActStep(7, "模型生成", "observation", observation, stepNumber);
-
-        // Store the result on the context (even if failed, for debugging)
-        context.setHunyuan3DModel(result);
-
-        // Final Answer
-        stepNumber++;
-        String finalAnswer;
-        if ("DONE".equals(result.getStatus()) && result.getGlbUrl() != null) {
-            finalAnswer = "混元生3D已生成3D模型（GLB格式），模型URL已嵌入实验结果";
-        } else if ("DONE".equals(result.getStatus())) {
-            finalAnswer = "混元生3D已生成3D模型，使用默认几何体进行仿真渲染";
-        } else {
-            finalAnswer = "3D模型生成未成功，使用默认几何体: " + geometryForScene(sceneType);
-        }
-        context.emitReActStep(7, "模型生成", "final_answer", finalAnswer, stepNumber);
-
-        log.info("ModelGeneratorNode: scene={}, hunyuan3d status={}, files={}",
-                sceneType, result.getStatus(), result.getModelFiles().size());
+        log.info("ModelGeneratorNode: scene={}, geometry={}, material={}",
+                sceneType, modelDescription, material);
     }
 
     /**
-     * Build a text prompt for the 混元生3D API based on the experiment scene type.
-     *
-     * <p>The prompt describes the physical object(s) in the experiment, not the
-     * motion itself — the 3D API generates static meshes, not animations.</p>
+     * Extract geometry description from the LLM's final answer.
+     * Looks for common geometry keywords.
      */
-    private String build3DPrompt(String sceneType, String userInput) {
-        // Use the user input to add context, but keep the core prompt simple
-        // for best results with the 3D generation API
-        switch (sceneType) {
-            case "freefall":
-                return "一个金属小球，光滑表面";
-            case "pendulum":
-                return "一个摆球，球体连接一根细绳";
-            case "spring":
-            case "damped":
-            case "damped_oscillation":
-                return "一个金属弹簧，连接着一个方块";
-            case "projectile":
-            case "oblique_throw":
-            case "angled_projectile":
-                return "一个小球，光滑球体";
-            case "ramp":
-            case "incline":
-                return "一个光滑斜面和一个滑块";
-            case "circular":
-                return "一个小球在圆形轨道上";
-            case "collision":
-                return "两个相同的台球";
-            case "atwood":
-            case "pulley":
-                return "一个定滑轮和两根绳子";
-            case "orbital":
-                return "一颗行星，蓝绿色球体";
-            case "uniform_acceleration":
-                return "一辆小推车";
-            case "ballistic_pendulum":
-                return "一个沙袋悬挂在绳子上";
-            case "binary_star":
-                return "两颗恒星，一大一小";
-            case "weightlessness":
-            case "elevator_physics":
-                return "一个体重秤";
-            case "lorentz_force":
-                return "一个发光的带电粒子";
-            case "rc_circuit":
-                return "一个电路板，上面有电阻和电容";
-            case "refraction":
-            case "light_refraction":
-                return "一个透明玻璃棱镜";
-            case "isothermal_expansion":
-                return "一个气缸和活塞";
-            case "wave_propagation":
-                return "一条波浪形的绳索";
-            default:
-                // For unknown scene types, extract a simple noun from the user input
-                if (userInput != null && !userInput.isBlank()) {
-                    // Use a generic prompt with the user input
-                    return "一个物理实验器材";
-                }
-                return "一个物理实验球体";
+    private String extractGeometryFromAnswer(String answer) {
+        String lower = answer.toLowerCase();
+        // Check for compound geometries first
+        if (lower.contains("spring") || lower.contains("弹簧")) return "spring+block";
+        if (lower.contains("pendulum") || lower.contains("摆")) return "sphere+rod";
+        if (lower.contains("orbit") || lower.contains("轨道") || lower.contains("行星")) return "sphere+orbit";
+        if (lower.contains("pulley") || lower.contains("滑轮")) return "pulley+blocks";
+        if (lower.contains("ramp") || lower.contains("斜面")) return "ramp+block";
+        if (lower.contains("prism") || lower.contains("棱镜")) return "prism+ray";
+        if (lower.contains("circuit") || lower.contains("电路")) return "circuit";
+        if (lower.contains("cylinder") || lower.contains("气缸")) return "cylinder+piston";
+        if (lower.contains("wave") || lower.contains("波")) return "wave";
+        if (lower.contains("box") || lower.contains("立方体") || lower.contains("方块")) return "box";
+        if (lower.contains("sphere") || lower.contains("球")) return "sphere";
+        if (lower.contains("cylinder") || lower.contains("圆柱")) return "cylinder";
+        // If the answer contains a geometry-like word, use the whole answer (truncated)
+        if (answer.length() < 100 && (lower.contains("+") || lower.contains("geometry"))) {
+            return answer.trim();
         }
+        return null;
     }
 
-    /** Fallback geometry descriptor for the frontend renderer. */
+    /**
+     * Extract material description from the LLM's final answer.
+     */
+    private String extractMaterialFromAnswer(String answer) {
+        String lower = answer.toLowerCase();
+        if (lower.contains("metal") || lower.contains("金属")) return "metal";
+        if (lower.contains("glass") || lower.contains("玻璃")) return "glass";
+        if (lower.contains("plastic") || lower.contains("塑料")) return "plastic";
+        if (lower.contains("wood") || lower.contains("木")) return "wood";
+        return null;
+    }
+
+    private boolean isValidSceneType(String sceneType) {
+        if (sceneType == null) return false;
+        return switch (sceneType) {
+            case "freefall", "pendulum", "spring", "projectile", "ramp", "incline",
+                 "circular", "collision", "angled_projectile", "oblique_throw",
+                 "atwood", "pulley", "orbital", "uniform_acceleration",
+                 "damped", "damped_oscillation", "ballistic_pendulum", "binary_star",
+                 "weightlessness", "elevator_physics", "lorentz_force", "rc_circuit",
+                 "refraction", "light_refraction", "isothermal_expansion",
+                 "wave_propagation" -> true;
+            default -> false;
+        };
+    }
+
+    /** Geometry descriptor for the frontend renderer based on scene type. */
     private String geometryForScene(String sceneType) {
         switch (sceneType) {
             case "pendulum": return "sphere+rod";
@@ -231,7 +190,28 @@ public class ModelGeneratorNode implements WorkflowNode {
             case "wave_propagation": return "wave";
             case "elevator_physics":
             case "weightlessness": return "box+scale";
+            case "circular": return "sphere+track";
+            case "uniform_acceleration": return "cart";
+            case "lorentz_force": return "particle+field";
             default: return "sphere";
+        }
+    }
+
+    /** Recommended material for the scene type. */
+    private String materialForScene(String sceneType) {
+        switch (sceneType) {
+            case "orbital":
+            case "binary_star":
+                return "standard";
+            case "refraction":
+            case "light_refraction":
+                return "glass";
+            case "lorentz_force":
+                return "metal";
+            case "rc_circuit":
+                return "standard";
+            default:
+                return "metal";
         }
     }
 }

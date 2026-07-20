@@ -4,20 +4,10 @@ server:
 spring:
   ai:
     zhipuai:
-      api-key: 325d6fa364954d2e871c30ba95b553bd.KBdQdqgJgELJBhnv
+      api-key: 7b8a15f57d2941a69fcce60f49f7c6ff.SiMrZjCdyOmdtzLr
       base-url: https://open.bigmodel.cn/api/paas
       chat:
         options:
           model: glm-4.5-flash
           temperature: 0.7
           max-tokens: 2000
-
-# 腾讯混元生3D (Tencent Hunyuan 3D) API configuration
-# OpenAI-compatible interface for 3D model generation
-hunyuan:
-  3d:
-    api-key: sk-hZWbuBTCaOUzfSx3oTApCQEJmU9eGD0vFa00bm96pzNUPhPU
-    base-url: https://api.ai3d.cloud.tencent.com
-    model-version: "3.0"
-    poll-interval: 10
-    max-poll-time: 300

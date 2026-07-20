@@ -92,7 +92,7 @@ const GENERATE_URL = `${BASE_PATH}/api/experiment/generate/`;
 const HEALTH_URL = `${BASE_PATH}/api/experiment/health/`;
 
 /** 默认请求超时时间（毫秒） */
-const DEFAULT_TIMEOUT_MS = 360_000;
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
  * 12 个工作流节点定义。
