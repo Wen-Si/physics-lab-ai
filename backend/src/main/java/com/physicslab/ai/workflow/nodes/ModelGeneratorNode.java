@@ -105,13 +105,16 @@ public class ModelGeneratorNode implements WorkflowNode {
             context.getErrors().add("模型生成ReAct增强失败: " + e.getMessage());
         }
 
-        // Store the model metadata on the context
+        // Store the model metadata in BOTH parameters and aiParams so the
+        // OutputFormatterNode includes it in the final result.
         Map<String, Object> model = new LinkedHashMap<>();
         model.put("geometry", modelDescription);
         model.put("material", material);
         model.put("sceneType", sceneType);
         model.put("ai_generated", true);
         context.getParameters().put("model", model);
+        // Also put in aiParams so OutputFormatterNode includes it in the output
+        context.getAiParams().put("model", model);
 
         log.info("ModelGeneratorNode: scene={}, geometry={}, material={}",
                 sceneType, modelDescription, material);
@@ -136,6 +139,12 @@ public class ModelGeneratorNode implements WorkflowNode {
         if (lower.contains("box") || lower.contains("立方体") || lower.contains("方块")) return "box";
         if (lower.contains("sphere") || lower.contains("球")) return "sphere";
         if (lower.contains("cylinder") || lower.contains("圆柱")) return "cylinder";
+        // New scene type geometries
+        if (lower.contains("water") || lower.contains("水") || lower.contains("浮")) return "box+water";
+        if (lower.contains("source") || lower.contains("声源")) return "source+wave";
+        if (lower.contains("slit") || lower.contains("双缝")) return "light_source+slits+screen";
+        if (lower.contains("coil") || lower.contains("线圈") || lower.contains("magnet") || lower.contains("磁铁")) return "coil+magnet";
+        if (lower.contains("rocket") || lower.contains("火箭") || lower.contains("flame") || lower.contains("火焰")) return "rocket+flame";
         // If the answer contains a geometry-like word, use the whole answer (truncated)
         if (answer.length() < 100 && (lower.contains("+") || lower.contains("geometry"))) {
             return answer.trim();
@@ -164,7 +173,10 @@ public class ModelGeneratorNode implements WorkflowNode {
                  "damped", "damped_oscillation", "ballistic_pendulum", "binary_star",
                  "weightlessness", "elevator_physics", "lorentz_force", "rc_circuit",
                  "refraction", "light_refraction", "isothermal_expansion",
-                 "wave_propagation" -> true;
+                 "wave_propagation",
+                 // 5 new scene types
+                 "buoyancy", "doppler_effect", "double_slit",
+                 "electromagnetic_induction", "rocket_propulsion" -> true;
             default -> false;
         };
     }
@@ -193,6 +205,12 @@ public class ModelGeneratorNode implements WorkflowNode {
             case "circular": return "sphere+track";
             case "uniform_acceleration": return "cart";
             case "lorentz_force": return "particle+field";
+            // 5 new scene types
+            case "buoyancy": return "box+water";
+            case "doppler_effect": return "source+wave";
+            case "double_slit": return "light_source+slits+screen";
+            case "electromagnetic_induction": return "coil+magnet";
+            case "rocket_propulsion": return "rocket+flame";
             default: return "sphere";
         }
     }
@@ -205,11 +223,19 @@ public class ModelGeneratorNode implements WorkflowNode {
                 return "standard";
             case "refraction":
             case "light_refraction":
+            case "double_slit":
                 return "glass";
             case "lorentz_force":
+            case "electromagnetic_induction":
                 return "metal";
             case "rc_circuit":
                 return "standard";
+            case "buoyancy":
+                return "wood";
+            case "doppler_effect":
+                return "standard";
+            case "rocket_propulsion":
+                return "metal";
             default:
                 return "metal";
         }

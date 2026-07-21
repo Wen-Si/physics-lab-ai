@@ -42,8 +42,36 @@ public class ParameterExtractorNode implements WorkflowNode {
         aiParams.put("sceneType", sceneType);
 
         // ---- 2. Extract physics parameters via regex ----
+        // 新实验参数（必须先于通用质量提取，避免"密度600kg/m³"误识别为质量）
+        putIfFound(aiParams, "density", extractFirst(input,
+                "密度\\s*(\\d+(?:\\.\\d+)?)\\s*kg/m"));
+        putIfFound(aiParams, "frequency", extractFirst(input,
+                "频率\\s*(\\d+(?:\\.\\d+)?)\\s*Hz"));
+        putIfFound(aiParams, "wavelength", extractFirst(input,
+                "波长\\s*(\\d+(?:\\.\\d+)?)\\s*nm",
+                "波长\\s*(\\d+(?:\\.\\d+)?)\\s*mm"));
+        putIfFound(aiParams, "slitSpacing", extractFirst(input,
+                "间距\\s*(\\d+(?:\\.\\d+)?)\\s*mm"));
+        putIfFound(aiParams, "screenDistance", extractFirst(input,
+                "屏幕距离\\s*(\\d+(?:\\.\\d+)?)\\s*m",
+                "距离\\s*(\\d+(?:\\.\\d+)?)\\s*m\\b"));
+        putIfFound(aiParams, "magneticField", extractFirst(input,
+                "磁场\\s*(\\d+(?:\\.\\d+)?)\\s*T",
+                "(\\d+(?:\\.\\d+)?)\\s*T\\s*的匀强磁场"));
+        putIfFound(aiParams, "coilArea", extractFirst(input,
+                "面积\\s*(\\d+(?:\\.\\d+)?)\\s*m"));
+        putIfFound(aiParams, "angularVelocity", extractFirst(input,
+                "每秒\\s*(\\d+(?:\\.\\d+)?)\\s*转",
+                "转速\\s*(\\d+(?:\\.\\d+)?)\\s*rps"));
+        putIfFound(aiParams, "exhaustVelocity", extractFirst(input,
+                "相对速度\\s*(\\d+(?:\\.\\d+)?)\\s*m/s"));
+        putIfFound(aiParams, "massRate", extractFirst(input,
+                "喷气速率\\s*(\\d+(?:\\.\\d+)?)\\s*kg/s"));
+        putIfFound(aiParams, "soundSpeed", extractFirst(input,
+                "声速\\s*(\\d+(?:\\.\\d+)?)\\s*m/s"));
+        // 通用参数提取（kg后不能跟/m，避免将密度单位kg/m³误识别为质量）
         putIfFound(aiParams, "mass", extractFirst(input,
-                "质量\\s*(\\d+(?:\\.\\d+)?)\\s*kg", "(\\d+(?:\\.\\d+)?)\\s*kg"));
+                "质量\\s*(\\d+(?:\\.\\d+)?)\\s*kg", "(\\d+(?:\\.\\d+)?)\\s*kg(?!/m)"));
         putIfFound(aiParams, "height", extractFirst(input,
                 "(\\d+(?:\\.\\d+)?)\\s*米", "(\\d+(?:\\.\\d+)?)\\s*m\\b"));
         putIfFound(aiParams, "angle", extractFirst(input,
@@ -87,6 +115,27 @@ public class ParameterExtractorNode implements WorkflowNode {
      * </ol>
      */
     private String detectSceneType(String input) {
+        // === 新增实验类型（必须在已有类型之前检测，避免误分类） ===
+        // 电磁感应（必须在洛伦兹力之前，因为都涉及"磁场"）
+        if (containsAny(input, "电磁感应", "线圈", "感应电动势", "法拉第")) {
+            return "electromagnetic_induction";
+        }
+        // 双缝干涉（必须在波传播之前，因为都涉及"波长"）
+        if (containsAny(input, "双缝", "干涉图样", "干涉条纹")) {
+            return "double_slit";
+        }
+        // 多普勒效应
+        if (containsAny(input, "多普勒", "声源", "观察者", "声速")) {
+            return "doppler_effect";
+        }
+        // 浮力实验
+        if (containsAny(input, "浮力", "浮在", "漂浮", "浸没", "排开", "阿基米德")) {
+            return "buoyancy";
+        }
+        // 火箭推进
+        if (containsAny(input, "火箭", "喷气", "喷出", "推进", "变质量")) {
+            return "rocket_propulsion";
+        }
         // === 电磁学实验 ===
         if (containsAny(input, "洛伦兹力", "磁场", "带电粒子", "磁感应强度")) {
             return "lorentz_force";
@@ -269,6 +318,18 @@ public class ParameterExtractorNode implements WorkflowNode {
             case "radius": return "半径";
             case "springConstant": return "弹簧系数";
             case "amplitude": return "振幅";
+            // 新实验参数
+            case "density": return "密度";
+            case "frequency": return "频率";
+            case "wavelength": return "波长";
+            case "slitSpacing": return "缝间距";
+            case "screenDistance": return "屏幕距离";
+            case "magneticField": return "磁场强度";
+            case "coilArea": return "线圈面积";
+            case "angularVelocity": return "角速度";
+            case "exhaustVelocity": return "喷气速度";
+            case "massRate": return "喷气速率";
+            case "soundSpeed": return "声速";
             default: return key;
         }
     }

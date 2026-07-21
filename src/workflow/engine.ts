@@ -89,7 +89,7 @@ export interface PhysicsParameters {
 export interface PhysicsObject {
   id: string;
   name: string;
-  type: 'sphere' | 'cube' | 'cylinder' | 'plane' | 'pendulum' | 'spring' | 'ramp' | 'lens' | 'mirror' | 'circuit';
+  type: 'sphere' | 'cube' | 'cylinder' | 'plane' | 'pendulum' | 'spring' | 'ramp' | 'lens' | 'mirror' | 'circuit' | 'torus' | 'cone';
   position: [number, number, number];
   rotation: [number, number, number];
   scale: [number, number, number];
@@ -99,6 +99,12 @@ export interface PhysicsObject {
   charge?: number;
   color?: string;
   material?: string;
+  density?: number;
+  frequency?: number;
+  wireframe?: boolean;
+  emissive?: string;
+  angularVelocity?: number;
+  turns?: number;
   metadata?: Record<string, unknown>;
 }
 
@@ -121,7 +127,7 @@ export interface PhysicsLaw {
 export interface ExperimentScene {
   id: string;
   name: string;
-  sceneType: 'freefall' | 'pendulum' | 'spring' | 'projectile' | 'ramp' | 'circular' | 'collision' | 'angled_projectile' | 'atwood' | 'orbital' | 'uniform_acceleration' | 'damped_oscillation' | 'lorentz_force' | 'rc_circuit' | 'light_refraction' | 'isothermal_expansion' | 'wave_propagation' | 'ballistic_pendulum' | 'binary_star' | 'elevator_physics' | 'electromagnetism' | 'optics' | 'thermodynamics' | 'waves' | 'modern_physics' | 'default';
+  sceneType: 'freefall' | 'pendulum' | 'spring' | 'projectile' | 'ramp' | 'circular' | 'collision' | 'angled_projectile' | 'atwood' | 'orbital' | 'uniform_acceleration' | 'damped_oscillation' | 'lorentz_force' | 'rc_circuit' | 'light_refraction' | 'isothermal_expansion' | 'wave_propagation' | 'ballistic_pendulum' | 'binary_star' | 'elevator_physics' | 'electromagnetism' | 'optics' | 'thermodynamics' | 'waves' | 'modern_physics' | 'buoyancy' | 'doppler_effect' | 'double_slit' | 'electromagnetic_induction' | 'rocket_propulsion' | 'default';
   objects: PhysicsObject[];
   environment: EnvironmentConfig;
   camera: { position: [number, number, number]; target: [number, number, number] };
@@ -441,6 +447,12 @@ export class ParameterExtractorNode extends WorkflowNode {
   // 推断具体实验子类型
   private inferSceneType(text: string, experimentType: ExperimentType): ExperimentScene['sceneType'] {
     const lower = text.toLowerCase();
+    // === 5个全新实验场景检测（优先于已有实验，避免关键词重叠） ===
+    if (/电磁感应|线圈|感应电动势|法拉第|electromagnetic.*induction/.test(lower)) return 'electromagnetic_induction';
+    if (/双缝|干涉图样|干涉条纹|double.*slit/.test(lower)) return 'double_slit';
+    if (/多普勒|声源|观察者|声速|doppler/.test(lower)) return 'doppler_effect';
+    if (/浮力|浮在|漂浮|浸没|排开|阿基米德|buoyancy/.test(lower)) return 'buoyancy';
+    if (/火箭|喷气|喷出|推进|变质量|rocket.*propulsion/.test(lower)) return 'rocket_propulsion';
     // === 新增10个实验场景检测（优先于原有实验，避免关键词重叠） ===
     if (/洛伦兹力|lorentz|带电粒子|磁感应强度|磁场.*电荷|电荷.*磁场/.test(lower)) return 'lorentz_force';
     if (/rc电路|电容|充电|放电|电阻.*电容|capacitor/.test(lower)) return 'rc_circuit';
@@ -1010,6 +1022,106 @@ export class ParameterExtractorNode extends WorkflowNode {
         });
         break;
 
+      // === 5个全新实验场景 ===
+      case 'buoyancy': {
+        // 浮力实验：木块漂浮在水面上
+        const density = numbers.find(n => n < 2000) || 600;
+        objects.push({
+          id: 'water_container', name: '水池', type: 'cube',
+          position: [0, -1, 0], rotation: [0, 0, 0], scale: [4, 1, 4],
+          color: 'rgba(64, 164, 223, 0.4)', material: 'water'
+        });
+        objects.push({
+          id: 'wood_block', name: '木块', type: 'cube',
+          position: [0, 0.2, 0], rotation: [0, 0, 0], scale: [0.8, 0.6, 0.8],
+          mass: density * 0.001, density: density, color: '#8B4513', material: 'wood'
+        });
+        break;
+      }
+      case 'doppler_effect': {
+        // 多普勒效应：声源向观察者运动
+        const freq = numbers.find(n => n > 100 && n < 10000) || 440;
+        const srcVel = numbers.find(n => n > 5 && n < 100) || 20;
+        objects.push({
+          id: 'sound_source', name: '声源', type: 'sphere',
+          position: [-5, 0, 0], rotation: [0, 0, 0], scale: [0.3, 0.3, 0.3],
+          velocity: [srcVel, 0, 0], frequency: freq, color: '#ff6b6b'
+        });
+        objects.push({
+          id: 'observer', name: '观察者', type: 'cube',
+          position: [5, 0, 0], rotation: [0, 0, 0], scale: [0.3, 0.8, 0.3],
+          color: '#4a90d9'
+        });
+        // 波前
+        for (let i = 1; i <= 5; i++) {
+          objects.push({
+            id: `wave_front_${i}`, name: `波前${i}`, type: 'sphere',
+            position: [-5 + i * 0.5, 0, 0], rotation: [0, 0, 0],
+            scale: [i * 0.4, i * 0.4, i * 0.4],
+            color: 'rgba(100, 200, 255, 0.2)', wireframe: true
+          });
+        }
+        break;
+      }
+      case 'double_slit': {
+        // 双缝干涉：光源 + 双缝挡板 + 屏幕
+        objects.push({
+          id: 'light_source', name: '光源', type: 'sphere',
+          position: [-6, 0, 0], rotation: [0, 0, 0], scale: [0.2, 0.2, 0.2],
+          color: '#ffd700', emissive: '#ffd700'
+        });
+        objects.push({
+          id: 'slit_barrier', name: '双缝挡板', type: 'cube',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [0.1, 3, 3],
+          color: '#333333', material: 'opaque'
+        });
+        objects.push({
+          id: 'screen', name: '观察屏', type: 'cube',
+          position: [6, 0, 0], rotation: [0, 0, 0], scale: [0.05, 3, 3],
+          color: '#ffffff', material: 'screen'
+        });
+        break;
+      }
+      case 'electromagnetic_induction': {
+        // 电磁感应：线圈在磁场中旋转
+        objects.push({
+          id: 'magnet_n', name: 'N极磁铁', type: 'cube',
+          position: [0, 2, 0], rotation: [0, 0, 0], scale: [2, 0.5, 1],
+          color: '#ff4444'
+        });
+        objects.push({
+          id: 'magnet_s', name: 'S极磁铁', type: 'cube',
+          position: [0, -2, 0], rotation: [0, 0, 0], scale: [2, 0.5, 1],
+          color: '#4444ff'
+        });
+        objects.push({
+          id: 'coil', name: '线圈', type: 'torus',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [0.8, 0.8, 0.1],
+          angularVelocity: 10, turns: 100, color: '#copper', material: 'metal'
+        });
+        break;
+      }
+      case 'rocket_propulsion': {
+        // 火箭推进：火箭体 + 火焰
+        const initMass = numbers.find(n => n > 0.5 && n < 10) || 2;
+        objects.push({
+          id: 'rocket_body', name: '火箭', type: 'cylinder',
+          position: [0, 0, 0], rotation: [0, 0, 0], scale: [0.4, 2, 0.4],
+          mass: initMass, color: '#e0e0e0', material: 'metal'
+        });
+        objects.push({
+          id: 'rocket_tip', name: '火箭头', type: 'cone',
+          position: [0, 1.5, 0], rotation: [0, 0, 0], scale: [0.4, 0.5, 0.4],
+          color: '#ff6b6b'
+        });
+        objects.push({
+          id: 'flame', name: '火焰', type: 'cone',
+          position: [0, -1.5, 0], rotation: [Math.PI, 0, 0], scale: [0.3, 0.8, 0.3],
+          color: '#ff9933', emissive: '#ff6600'
+        });
+        break;
+      }
+
       default:
         objects.push({
           id: 'object_1', name: '物体', type: 'cube',
@@ -1078,6 +1190,22 @@ export class ParameterExtractorNode extends WorkflowNode {
         break;
       case 'elevator_physics':
         timeEnd = 6;
+        break;
+      // 5个新实验场景的时间范围
+      case 'buoyancy':
+        timeEnd = 8;
+        break;
+      case 'doppler_effect':
+        timeEnd = 10;
+        break;
+      case 'double_slit':
+        timeEnd = 5;
+        break;
+      case 'electromagnetic_induction':
+        timeEnd = 6;
+        break;
+      case 'rocket_propulsion':
+        timeEnd = 10;
         break;
       default:
         timeEnd = 10;
@@ -1196,6 +1324,30 @@ export class PhysicsLawMatcherNode extends WorkflowNode {
       wave_propagation: [
         { name: '波动方程', formula: 'y = A sin(kx - ωt)', description: '波的传播规律', applicableObjects: ['all'] }
       ],
+      // 5个全新实验场景的物理定律
+      buoyancy: [
+        { name: '阿基米德原理', formula: 'F_浮 = ρ液·g·V排', description: '浮力等于排开液体的重量', applicableObjects: ['cube'] },
+        { name: '浮力定律', formula: 'F_浮 = ρ液·g·V排', description: '浸入流体中的物体受到向上的浮力', applicableObjects: ['cube'] },
+        { name: '牛顿第二定律', formula: 'F = ma', description: '物体的加速度与作用力成正比', applicableObjects: ['all'] }
+      ],
+      doppler_effect: [
+        { name: '多普勒效应公式', formula: "f' = f·v/(v-vs)", description: '声源运动时观察者接收到的频率变化', applicableObjects: ['sphere'] },
+        { name: '声波传播原理', formula: 'v = fλ', description: '声速等于频率乘以波长', applicableObjects: ['all'] }
+      ],
+      double_slit: [
+        { name: '杨氏双缝干涉', formula: 'Δx = λL/d', description: '干涉条纹间距', applicableObjects: ['screen'] },
+        { name: '光的波动性', formula: 'I = I₀cos²(πd sinθ/λ)', description: '光的干涉现象', applicableObjects: ['all'] },
+        { name: '光程差公式', formula: 'δ = d sinθ', description: '双缝到屏幕的光程差', applicableObjects: ['screen'] }
+      ],
+      electromagnetic_induction: [
+        { name: '法拉第电磁感应定律', formula: 'ε = -N·dΦ/dt', description: '感应电动势与磁通量变化率成正比', applicableObjects: ['coil'] },
+        { name: '楞次定律', formula: 'ε = -dΦ/dt', description: '感应电流方向阻碍磁通量变化', applicableObjects: ['coil'] }
+      ],
+      rocket_propulsion: [
+        { name: '动量守恒定律', formula: 'm₁v₁ + m₂v₂ = const', description: '系统总动量保持不变', applicableObjects: ['cylinder'] },
+        { name: '牛顿第三定律', formula: 'F_作用 = -F_反作用', description: '作用力与反作用力大小相等方向相反', applicableObjects: ['all'] },
+        { name: '齐奥尔科夫斯基公式', formula: 'Δv = ve·ln(m₀/m₁)', description: '火箭速度增量公式', applicableObjects: ['cylinder'] }
+      ],
     };
 
     if (sceneLaws[sceneType]) {
@@ -1296,6 +1448,12 @@ export class SceneBuilderNode extends WorkflowNode {
       case 'ballistic_pendulum': return { position: [8, 5, 10], target: [0, 4, 0] };
       case 'binary_star': return { position: [14, 8, 14], target: [0, 4, 0] };
       case 'elevator_physics': return { position: [8, 4, 10], target: [0, 2, 0] };
+      // === 5个全新实验场景的相机位置 ===
+      case 'buoyancy': return { position: [8, 4, 10], target: [0, 0, 0] };
+      case 'doppler_effect': return { position: [0, 5, 15], target: [0, 0, 0] };
+      case 'double_slit': return { position: [0, 3, 15], target: [0, 0, 0] };
+      case 'electromagnetic_induction': return { position: [10, 6, 10], target: [0, 0, 0] };
+      case 'rocket_propulsion': return { position: [8, 5, 12], target: [0, 2, 0] };
       default: return { position: [10, 8, 10], target: [0, 0, 0] };
     }
   }
@@ -1967,6 +2125,172 @@ export class PhysicsCalculatorNode extends WorkflowNode {
           kinetic.push(0.5 * mass * v * v);
           potential.push(mass * g * py);
           total.push(0.5 * mass * v * v + mass * g * py);
+        }
+        break;
+      }
+
+      // === 5个全新实验场景的动画逻辑 ===
+      case 'buoyancy': {
+        // 浮力实验：木块在水中上下振荡后平衡
+        const block = objects.find(o => o.id === 'wood_block') || objects[0];
+        const density = (block as any).density || 600;
+        const waterDensity = 1000;
+        const volume = 0.001; // m³
+        const mass = density * volume;
+        const g = 9.8;
+        const buoyancyForce = waterDensity * volume * g;
+        const netForce = buoyancyForce - mass * g;
+        const accel = netForce / mass; // 向上的加速度
+        const y0 = block.position?.[1] || 0.2;
+        const v0 = 0;
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          // 简谐振荡模型：木块在平衡位置附近振荡
+          const omega = Math.sqrt(waterDensity * g / (density * 0.5));
+          const y = y0 + 0.3 * Math.cos(omega * t);
+          const v = -0.3 * omega * Math.sin(omega * t);
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[block.id] = {
+            position: [block.position?.[0] || 0, y, block.position?.[2] || 0],
+            velocity: [0, v, 0]
+          };
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0.5 * mass * v * v);
+          potential.push(mass * g * y);
+          total.push(0.5 * mass * v * v + mass * g * y);
+        }
+        break;
+      }
+      case 'doppler_effect': {
+        // 多普勒效应：声源向观察者运动
+        const source = objects.find(o => o.id === 'sound_source') || objects[0];
+        const observer = objects.find(o => o.id === 'observer') || objects[1];
+        const srcVel = (source as any).velocity?.[0] || 20;
+        const soundSpeed = 340;
+        const srcFreq = (source as any).frequency || 440;
+        const x0 = source.position?.[0] || -5;
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const sx = x0 + srcVel * t;
+          const distance = Math.abs((observer.position?.[0] || 5) - sx);
+          // 多普勒频率: f' = f * v_sound / (v_sound - v_source)
+          const observedFreq = srcFreq * soundSpeed / (soundSpeed - srcVel);
+          const v = srcVel;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[source.id] = {
+            position: [sx, source.position?.[1] || 0, source.position?.[2] || 0],
+            velocity: [v, 0, 0]
+          };
+          stepObj[observer.id] = {
+            position: [observer.position?.[0] || 5, observer.position?.[1] || 0, observer.position?.[2] || 0],
+            velocity: [0, 0, 0]
+          };
+          // 波前扩展
+          objects.filter(o => o.id.startsWith('wave_front_')).forEach((wf, i) => {
+            const wfRadius = (t * soundSpeed * 0.05 + i * 0.4);
+            stepObj[wf.id] = {
+              position: [sx - wfRadius * 0.3, 0, 0],
+              velocity: [0, 0, 0]
+            };
+          });
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0.5 * 1 * v * v);
+          potential.push(0);
+          total.push(0.5 * 1 * v * v);
+        }
+        break;
+      }
+      case 'double_slit': {
+        // 双缝干涉：静态场景展示干涉图样
+        const lightSrc = objects.find(o => o.id === 'light_source') || objects[0];
+        const screen = objects.find(o => o.id === 'screen') || objects[2];
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          objects.forEach(obj => {
+            stepObj[obj.id] = {
+              position: obj.position || [0, 0, 0],
+              velocity: [0, 0, 0]
+            };
+          });
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0);
+          potential.push(0);
+          total.push(0);
+        }
+        break;
+      }
+      case 'electromagnetic_induction': {
+        // 电磁感应：线圈旋转
+        const coil = objects.find(o => o.id === 'coil') || objects[0];
+        const angularVel = (coil as any).angularVelocity || 10;
+        const B = 0.5; // 磁场强度
+        const area = 0.01; // 线圈面积
+        const turns = (coil as any).turns || 100;
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          const angle = angularVel * t;
+          const emf = turns * B * area * angularVel * Math.sin(angularVel * t);
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          objects.forEach(obj => {
+            if (obj.id === 'coil') {
+              stepObj[obj.id] = {
+                position: obj.position || [0, 0, 0],
+                velocity: [0, 0, 0]
+              };
+            } else {
+              stepObj[obj.id] = {
+                position: obj.position || [0, 0, 0],
+                velocity: [0, 0, 0]
+              };
+            }
+          });
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0.5 * 0.1 * angularVel * angularVel); // 转动动能
+          potential.push(0);
+          total.push(0.5 * 0.1 * angularVel * angularVel);
+        }
+        break;
+      }
+      case 'rocket_propulsion': {
+        // 火箭推进：变质量加速
+        const rocket = objects.find(o => o.id === 'rocket_body') || objects[0];
+        const flame = objects.find(o => o.id === 'flame') || objects[2];
+        const m0 = rocket.mass || 2;
+        const exhaustVel = 10;
+        const massRate = 0.1;
+        const y0 = rocket.position?.[1] || 0;
+        let velocity = 0;
+        let position = y0;
+        let mass = m0;
+        for (let t = timeRange.start; t <= timeRange.end; t += timeRange.step) {
+          if (mass > m0 * 0.5) {
+            // 火箭方程: dv = -u * dm/m
+            const dm = massRate * timeRange.step;
+            const dv = -exhaustVel * dm / mass;
+            velocity += dv;
+            mass -= dm;
+          }
+          position += velocity * timeRange.step;
+          const stepObj: Record<string, { position: [number, number, number]; velocity: [number, number, number] }> = {};
+          stepObj[rocket.id] = {
+            position: [rocket.position?.[0] || 0, position, rocket.position?.[2] || 0],
+            velocity: [0, velocity, 0]
+          };
+          if (flame) {
+            stepObj[flame.id] = {
+              position: [flame.position?.[0] || 0, position - 1.5, flame.position?.[2] || 0],
+              velocity: [0, velocity, 0]
+            };
+          }
+          objects.forEach(obj => {
+            if (!stepObj[obj.id]) {
+              stepObj[obj.id] = {
+                position: [obj.position?.[0] || 0, obj.position?.[1] || 0 + (obj.id === 'rocket_tip' ? position : 0), obj.position?.[2] || 0],
+                velocity: [0, velocity, 0]
+              };
+            }
+          });
+          steps.push({ time: t, objects: stepObj });
+          kinetic.push(0.5 * mass * velocity * velocity);
+          potential.push(mass * 9.8 * position);
+          total.push(0.5 * mass * velocity * velocity + mass * 9.8 * position);
         }
         break;
       }
